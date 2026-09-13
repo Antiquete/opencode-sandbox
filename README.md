@@ -80,7 +80,9 @@ The container is launched with:
   32 GB ceiling, CPUs = all detected cores, 512 processes. If the host can't be
   measured, a fallback of 8 GB / 4 CPUs is used.
 - interactive read/write access to the current project only
-- state persisted under `<project>/.opencode`
+- state persisted under `<project>/.opencode`, reachable inside the container
+  only at its data path (`/root/.local/share/opencode`); it is masked out of the
+  project tree so the agent can't poke at it as project content
 - shared config at `~/.config/opencode` (read/write)
 
 It does **not** receive `~/.ssh`, the Docker socket, or any other host paths.
