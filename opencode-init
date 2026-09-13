@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROJECT="$(realpath -e -- "$PWD")"
+HOME_DIR="$(realpath -e -- "$HOME")"
+
+if [ "$PROJECT" = "$HOME_DIR" ] || [ "$PROJECT" = "/" ]; then
+    echo "Error: refusing to initialize OpenCode in:"
+    echo "  $PROJECT"
+    exit 1
+fi
+
+if [ ! -d "$PROJECT" ]; then
+    echo "Error: current directory is invalid."
+    exit 1
+fi
+
+if [ -e "$PROJECT/.opencode" ] && [ ! -d "$PROJECT/.opencode" ]; then
+    echo "Error: $PROJECT/.opencode exists but is not a directory."
+    exit 1
+fi
+
+mkdir -p "$PROJECT/.opencode"
+
+echo
+echo "OpenCode isolated project initialized:"
+echo "  $PROJECT"
+echo
+echo "Persistent OpenCode state:"
+echo "  $PROJECT/.opencode"
+echo
+echo "Start with:"
+echo "  opencode-isolated"

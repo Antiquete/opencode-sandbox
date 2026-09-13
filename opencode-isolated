@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROJECT="$(realpath -e -- "$PWD")"
+HOME_DIR="$(realpath -e -- "$HOME")"
+
+IMAGE="ghcr.io/anomalyco/opencode:latest"
+NETWORK="llm-net"
+
+STATE_DIR="$PROJECT/.opencode"
+CONFIG_DIR="$HOME/.config/opencode"
+
+if [ "$PROJECT" = "$HOME_DIR" ] || [ "$PROJECT" = "/" ]; then
+    echo "Error: refusing to run OpenCode in:"
+    echo "  $PROJECT"
+    exit 1
+fi
+
+if [ ! -d "$STATE_DIR" ]; then
+    echo "Error: this directory has not been initialized for isolated OpenCode."
+    echo
+    echo "Run:"
+    echo "  opencode-init"
+    exit 1
+fi
+
+mkdir -p "$CONFIG_DIR"
+
+echo
+echo "=================================================="
+echo "OpenCode Isolated"
+echo "=================================================="
+echo
+echo "Project:"
+echo "  $PROJECT"
+echo
+echo "OpenCode will have READ/WRITE access to everything"
+echo "inside this project."
+echo
+echo "It will NOT receive direct access to:"
+echo "  - other host projects"
+echo "  - your full home directory"
+echo "  - ~/.ssh"
+echo "  - Docker socket"
+echo
+echo "Project-specific persistent state:"
+echo "  $STATE_DIR"
+echo
+echo "Shared OpenCode config (READ/WRITE):"
+echo "  $CONFIG_DIR"
+echo
+printf "Continue? [y/N]: "
+read -r CONFIRM
+
+case "$CONFIRM" in
+    y|Y|yes|Yes|YES)
+        ;;
+    *)
+        echo "Cancelled."
+        exit 0
+        ;;
+esac
+
+CONTAINER_NAME="opencode-$(basename "$PROJECT" \
+    | tr -cs '[:alnum:]' '-' \
+    | sed 's/^-//;s/-$//' \
+    | cut -c1-40)"
+
+docker run --rm -it \
+    --name "$CONTAINER_NAME" \
+    --network "$NETWORK" \
+    --cap-drop ALL \
+    --security-opt no-new-privileges:true \
+    --pids-limit 512 \
+    --memory 8g \
+    --cpus 4 \
+    --mount "type=bind,src=$PROJECT,dst=/workspace" \
+    --mount "type=bind,src=$STATE_DIR,dst=/root/.local/share/opencode" \
+    --mount "type=bind,src=$CONFIG_DIR,dst=/root/.config/opencode" \
+    --workdir /workspace \
+    "$IMAGE"
