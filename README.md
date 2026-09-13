@@ -1,5 +1,9 @@
 # OpenCode Sandbox
 
+<p align="center">
+  <img src="icon.svg" alt="OpenCode Sandbox" width="128">
+</p>
+
 Run [OpenCode](https://opencode.ai) inside a locked-down Docker container so it
 has access to only the current project - never your full home directory,
 `~/.ssh`, other projects, or the Docker socket.
