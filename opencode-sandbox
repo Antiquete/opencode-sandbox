@@ -19,8 +19,8 @@ fi
 if [ ! -d "$STATE_DIR" ]; then
     echo "Error: this directory has not been initialized for isolated OpenCode."
     echo
-    echo "Run:"
-    echo "  opencode-init"
+echo "Run:"
+echo "  opencode-project-init"
     exit 1
 fi
 

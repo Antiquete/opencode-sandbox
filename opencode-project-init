@@ -30,4 +30,4 @@ echo "Persistent OpenCode state:"
 echo "  $PROJECT/.opencode"
 echo
 echo "Start with:"
-echo "  opencode-isolated"
+echo "  opencode-sandbox"
