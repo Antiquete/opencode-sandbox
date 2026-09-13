@@ -9,25 +9,6 @@ IMAGE="ghcr.io/anomalyco/opencode:latest"
 STATE_DIR="$PROJECT/.opencode"
 CONFIG_DIR="$HOME/.config/opencode"
 
-RESOLVED_STATE="$(cd -P "$STATE_DIR" 2>/dev/null && pwd || true)"
-if [ -z "$RESOLVED_STATE" ]; then
-    echo "Error: state directory is missing or unreadable:"
-    echo "  $STATE_DIR"
-    exit 1
-fi
-case "$RESOLVED_STATE" in
-    "$PROJECT"/*)
-        ;;
-    *)
-        echo "Error: state directory resolves outside the project."
-        echo "  Logical:   $STATE_DIR"
-        echo "  Resolved:  $RESOLVED_STATE"
-        echo "Remove the symlink so it stays inside the project."
-        exit 1
-        ;;
-esac
-STATE_DIR="$RESOLVED_STATE"
-
 NETWORK=""
 OPENCODE_ARGS=()
 while [ "$#" -gt 0 ]; do
@@ -63,13 +44,32 @@ if [ "$HOME_DIR" = "$PROJECT" ] || { case "$HOME_DIR" in "$PROJECT"/*) true;; *)
     exit 1
 fi
 
-if [ ! -d "$STATE_DIR" ]; then
+if [ ! -d "$PROJECT/.opencode" ]; then
     echo "Error: this directory has not been initialized for isolated OpenCode."
     echo
-echo "Run:"
-echo "  opencode-project-init"
+    echo "Run:"
+    echo "  opencode-project-init"
     exit 1
 fi
+
+RESOLVED_STATE="$(cd -P "$STATE_DIR" 2>/dev/null && pwd || true)"
+if [ -z "$RESOLVED_STATE" ]; then
+    echo "Error: state directory is missing or unreadable:"
+    echo "  $STATE_DIR"
+    exit 1
+fi
+case "$RESOLVED_STATE" in
+    "$PROJECT"/*)
+        ;;
+    *)
+        echo "Error: state directory resolves outside the project."
+        echo "  Logical:   $STATE_DIR"
+        echo "  Resolved:  $RESOLVED_STATE"
+        echo "Remove the symlink so it stays inside the project."
+        exit 1
+        ;;
+esac
+STATE_DIR="$RESOLVED_STATE"
 
 if [ "${BASH_VERSION:-}" = "" ]; then
     echo "Error: this script requires bash (shebang: #!/usr/bin/env bash)."
