@@ -181,11 +181,16 @@ fi
 PULL_LABEL="always"
 [ "$PULL_ALWAYS" -eq 0 ] && PULL_LABEL="never (--offline)"
 
-echo
-echo "${B}==========================================================${RST}"
-echo "${B}  OpenCode Isolated Sandbox${RST}"
-echo "${B}==========================================================${RST}"
-echo
+PROJ_NAME="$(basename "$PROJECT")"
+
+cat <<'LOGO'
+⠀                                ▄     
+█▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█
+█  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀  ▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+
+LOGO
+printf '  %s\n' "${GRN}${B}${PROJ_NAME}${RST}${DIM} - isolated session${RST}"
 printf '  %-17s %s\n' "${B}Project${RST}" "$PROJECT"
 printf '  %-17s %s\n' "${B}Network${RST}" "$NET_LABEL"
 printf '  %-17s %s\n' "${B}Image pull${RST}" "$PULL_LABEL"
