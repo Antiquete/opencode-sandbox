@@ -14,6 +14,29 @@ has access to only the current project - never your full home directory,
 The scripts check bash, the docker CLI, the daemon, and problem path characters
 up front and print a clear message if something is missing.
 
+## Installing
+
+When a release has native packages attached, prefer your package manager:
+
+```sh
+# Debian / Ubuntu
+sudo apt install ./opencode-sandbox_1.0.0_all.deb
+# Fedora
+sudo dnf install ./opencode-sandbox-1.0.0-1.noarch.rpm
+# Arch
+sudo pacman -U ./opencode-sandbox-1.0.0-1-any.pkg.tar.zst
+# Gentoo
+# drop opencode-sandbox-1.0.0.ebuild into a local overlay, then:
+sudo emerge opencode-sandbox
+```
+
+Otherwise download the source tarball and copy the two scripts into your PATH:
+
+```sh
+tar -xzf opencode-sandbox-1.0.0.tar.gz
+cp opencode-sandbox-1.0.0/{opencode-sandbox,opencode-project-init} ~/.local/bin
+```
+
 ## Setup
 
 Initialize a project once before first use. Run this from the project directory:
