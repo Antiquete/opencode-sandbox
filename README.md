@@ -1,4 +1,4 @@
-# OpenCode Isolated Sandbox
+# OpenCode Sandbox
 
 Run [OpenCode](https://opencode.ai) inside a locked-down Docker container so it
 has access to only the current project - never your full home directory,
@@ -6,21 +6,13 @@ has access to only the current project - never your full home directory,
 
 ## Requirements
 
-- **bash** — the scripts rely on bash features (arrays, `pipefail`, ANSI
-  escapes). macOS and most Linux distros ship bash; on a minimal system
-  install it (e.g. `apk add bash` on Alpine).
-- **docker** CLI in your `PATH`.
-- **A running Docker daemon** — the sandbox won't start without it.
-- **POSIX userland tools** — `basename`, `tr`, `sed`, `cut`, `cksum`, `awk`,
-  `getconf`, `printf`, `mkdir`. These ship with every stock Linux/macOS install;
-  no setup needed.
-- **An OpenCode image** published as `ghcr.io/anomalyco/opencode:latest`
-  (pulled on each run unless `--offline` is used).
-- **Docker network permissions** (only when using `--docker-network` to create
-  a missing network): the host user must be allowed to create Docker networks.
+- **bash**
+- **docker** CLI and a running Docker daemon
+- an OpenCode image published as `ghcr.io/anomalyco/opencode:latest`
+  (pulled on each run unless `--offline`)
 
-The script checks bash, the `docker` CLI, the daemon, and problem path
-characters up front and prints a clear message if something is missing.
+The scripts check bash, the docker CLI, the daemon, and problem path characters
+up front and print a clear message if something is missing.
 
 ## Setup
 
@@ -59,7 +51,7 @@ OpenCode inside the container.
 | Flag | Description |
 | --- | --- |
 | `--offline` | Skip the image pull (`docker run --pull never`); use whatever image is already present. Useful on offline/unreliable networks. |
-| `--docker-network <name>` | Attach the container to a named Docker network (created automatically if it doesn't exist). Defaults to Docker's default network. Useful for reaching a provider on another container (e.g. a local LLM server on `llm-net`), or `host` to reach services bound to the host's `localhost`. |
+| `--docker-network <name>` | Attach the container to a named Docker network (created automatically if it doesn't exist; requires permission to create networks). Defaults to Docker's default network. Useful for reaching a provider on another container (e.g. a local LLM server on `llm-net`), or `host` to reach services bound to the host's `localhost`. |
 | anything else | Forwarded to OpenCode, e.g. `--model`, `--continue`, `run`, `--help`. |
 
 Example with a custom network:
@@ -75,14 +67,8 @@ The container is launched with:
 
 - all Linux capabilities dropped (`--cap-drop ALL`)
 - privilege escalation blocked (`--security-opt no-new-privileges:true`)
-- resource limits that adapt to the host and work everywhere, from a Raspberry
-  Pi to a server farm: memory = 85% of available RAM with a 256 MB floor and a
-  32 GB ceiling, CPUs = all detected cores, 512 processes. If the host can't be
-  measured, a fallback of 8 GB / 4 CPUs is used.
 - interactive read/write access to the current project only
 - state persisted under `<project>/.opencode-sandbox`, reachable inside the container
   only at its data path (`/root/.local/share/opencode`); it is masked out of the
   project tree so the agent can't poke at it as project content
 - shared config at `~/.config/opencode` (read/write)
-
-It does **not** receive `~/.ssh`, the Docker socket, or any other host paths.
