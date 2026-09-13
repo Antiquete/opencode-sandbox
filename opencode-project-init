@@ -28,6 +28,13 @@ fi
 
 mkdir -p "$PROJECT/.opencode-sandbox"
 
+if [ -e "$PROJECT/.git" ]; then
+    GITIGNORE="$PROJECT/.gitignore"
+    if [ ! -f "$GITIGNORE" ] || ! grep -qx '.opencode-sandbox/' "$GITIGNORE" 2>/dev/null; then
+        printf '%s\n' '.opencode-sandbox/' >> "$GITIGNORE"
+    fi
+fi
+
 echo
 echo "OpenCode isolated project initialized:"
 echo "  $PROJECT"
