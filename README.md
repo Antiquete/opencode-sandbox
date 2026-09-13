@@ -72,3 +72,7 @@ The container is launched with:
   only at its data path (`/root/.local/share/opencode`); it is masked out of the
   project tree so the agent can't poke at it as project content
 - shared config at `~/.config/opencode` (read/write)
+
+## License
+
+GPL-3.0-or-later — see [LICENSE](LICENSE).
