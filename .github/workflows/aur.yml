@@ -1,0 +1,23 @@
+name: AUR
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  aur:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish to AUR
+        uses: KSXGitHub/github-actions-aur-push@v1
+        with:
+          aur_ssh_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          package_name: opencode-sandbox-git
+          srcpkg_directory_path: packaging/aur-git
+          commit_username: ${{ secrets.AUR_COMMIT_USERNAME }}
+          commit_email: ${{ secrets.AUR_COMMIT_EMAIL }}
