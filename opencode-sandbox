@@ -79,4 +79,5 @@ docker run --rm -it \
     --mount "type=bind,src=$STATE_DIR,dst=/root/.local/share/opencode" \
     --mount "type=bind,src=$CONFIG_DIR,dst=/root/.config/opencode" \
     --workdir /workspace \
-    "$IMAGE"
+    "$IMAGE" \
+    "$@"
