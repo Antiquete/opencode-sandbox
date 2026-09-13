@@ -158,7 +158,13 @@ if [ -n "$NETWORK" ]; then
     NET_OPTS=(--network "$NETWORK")
 fi
 
-docker run --rm -it \
+TTY_OPTS=(-i)
+if [ -t 0 ] && [ -t 1 ]; then
+    TTY_OPTS+=(-t)
+fi
+
+docker run --rm \
+    "${TTY_OPTS[@]}" \
     --pull always \
     --name "$CONTAINER_NAME" \
     --cap-drop ALL \
