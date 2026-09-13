@@ -4,9 +4,15 @@ set -euo pipefail
 PROJECT="$(cd -P "$PWD" && pwd)"
 HOME_DIR="$(cd -P "$HOME" && pwd)"
 
-if [ "$PROJECT" = "$HOME_DIR" ] || [ "$PROJECT" = "/" ]; then
-    echo "Error: refusing to initialize OpenCode in:"
+if [ "$PROJECT" = "/" ]; then
+    echo "Error: refusing to initialize OpenCode at the filesystem root."
+    exit 1
+fi
+if [ "$HOME_DIR" = "$PROJECT" ] || { case "$HOME_DIR" in "$PROJECT"/*) true;; *) false;; esac; }; then
+    echo "Error: refusing to initialize OpenCode here:"
     echo "  $PROJECT"
+    echo "It contains your home directory ($HOME_DIR), which would be exposed"
+    echo "to the sandbox. Run it inside a more specific project directory."
     exit 1
 fi
 
