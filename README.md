@@ -6,10 +6,20 @@ has access to only the current project - never your full home directory,
 
 ## Requirements
 
-- `bash`
-- `docker`
-- An OpenCode image published as `ghcr.io/anomalyco/opencode:latest`
-  (pulled automatically on each run)
+- **bash** — the scripts rely on bash features (arrays, `pipefail`, ANSI
+  escapes). macOS and most Linux distros ship bash; on a minimal system
+  install it (e.g. `apk add bash` on Alpine).
+- **docker** CLI in your `PATH`.
+- **A running Docker daemon** — the sandbox won't start without it.
+- **POSIX userland tools** — `basename`, `tr`, `sed`, `cut`, `cksum`, `printf`,
+  `mkdir`. These ship with every stock Linux/macOS install; no setup needed.
+- **An OpenCode image** published as `ghcr.io/anomalyco/opencode:latest`
+  (pulled automatically on each run).
+- **Docker network permissions** (only when using `--docker-network` to create
+  a missing network): the host user must be allowed to create Docker networks.
+
+The script checks bash, the `docker` CLI, the daemon, and problem path
+characters up front and prints a clear message if something is missing.
 
 ## Setup
 

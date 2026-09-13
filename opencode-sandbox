@@ -46,6 +46,23 @@ echo "  opencode-project-init"
     exit 1
 fi
 
+if [ "${BASH_VERSION:-}" = "" ]; then
+    echo "Error: this script requires bash (shebang: #!/usr/bin/env bash)."
+    exit 1
+fi
+
+if ! command -v docker >/dev/null 2>&1; then
+    echo "Error: the 'docker' CLI was not found."
+    echo "Install Docker and make sure it is in your PATH."
+    exit 1
+fi
+
+if ! docker info >/dev/null 2>&1; then
+    echo "Error: cannot reach the Docker daemon."
+    echo "Is Docker running? Check with: docker info"
+    exit 1
+fi
+
 for path in "$PROJECT" "$CONFIG_DIR"; do
     case "$path" in
         *,*)
