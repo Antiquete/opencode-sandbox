@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT="$(realpath -e -- "$PWD")"
-HOME_DIR="$(realpath -e -- "$HOME")"
+PROJECT="$(cd -P "$PWD" && pwd)"
+HOME_DIR="$(cd -P "$HOME" && pwd)"
 
 IMAGE="ghcr.io/anomalyco/opencode:latest"
 NETWORK="llm-net"

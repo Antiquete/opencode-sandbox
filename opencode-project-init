@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT="$(realpath -e -- "$PWD")"
-HOME_DIR="$(realpath -e -- "$HOME")"
+PROJECT="$(cd -P "$PWD" && pwd)"
+HOME_DIR="$(cd -P "$HOME" && pwd)"
 
 if [ "$PROJECT" = "$HOME_DIR" ] || [ "$PROJECT" = "/" ]; then
     echo "Error: refusing to initialize OpenCode in:"
