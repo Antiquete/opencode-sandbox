@@ -67,6 +67,7 @@ CONTAINER_NAME="opencode-$(basename "$PROJECT" \
     | cut -c1-40)"
 
 docker run --rm -it \
+    --pull always \
     --name "$CONTAINER_NAME" \
     --network "$NETWORK" \
     --cap-drop ALL \
