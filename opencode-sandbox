@@ -6,7 +6,7 @@ HOME_DIR="$(cd -P "$HOME" && pwd)"
 
 IMAGE="ghcr.io/anomalyco/opencode:latest"
 
-STATE_DIR="$PROJECT/.opencode"
+STATE_DIR="$PROJECT/.opencode-sandbox"
 CONFIG_DIR="$HOME/.config/opencode"
 
 NETWORK=""
@@ -49,7 +49,7 @@ if [ "$HOME_DIR" = "$PROJECT" ] || { case "$HOME_DIR" in "$PROJECT"/*) true;; *)
     exit 1
 fi
 
-if [ ! -d "$PROJECT/.opencode" ]; then
+if [ ! -d "$PROJECT/.opencode-sandbox" ]; then
     echo "Error: this directory has not been initialized for isolated OpenCode."
     echo
     echo "Run:"
@@ -256,7 +256,7 @@ docker run --rm \
     --memory "$MEM_LIMIT" \
     --cpus "$CPUS_LIMIT" \
     --mount "type=bind,src=$PROJECT,dst=/workspace" \
-    --mount "type=volume,dst=/workspace/.opencode" \
+    --mount "type=volume,dst=/workspace/.opencode-sandbox" \
     --mount "type=bind,src=$STATE_DIR,dst=/root/.local/share/opencode" \
     --mount "type=bind,src=$CONFIG_DIR,dst=/root/.config/opencode" \
     --workdir /workspace \

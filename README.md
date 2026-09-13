@@ -30,7 +30,7 @@ Initialize a project once before first use. Run this from the project directory:
 opencode-project-init
 ```
 
-This creates a `.opencode/` directory in the project, where OpenCode's
+This creates a `.opencode-sandbox/` directory in the project, where OpenCode's
 persistent state is stored between sessions. It refuses to run in `$HOME` or `/`.
 
 ## Launching
@@ -80,7 +80,7 @@ The container is launched with:
   32 GB ceiling, CPUs = all detected cores, 512 processes. If the host can't be
   measured, a fallback of 8 GB / 4 CPUs is used.
 - interactive read/write access to the current project only
-- state persisted under `<project>/.opencode`, reachable inside the container
+- state persisted under `<project>/.opencode-sandbox`, reachable inside the container
   only at its data path (`/root/.local/share/opencode`); it is masked out of the
   project tree so the agent can't poke at it as project content
 - shared config at `~/.config/opencode` (read/write)

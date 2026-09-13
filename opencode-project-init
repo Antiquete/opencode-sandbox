@@ -21,19 +21,19 @@ if [ ! -d "$PROJECT" ]; then
     exit 1
 fi
 
-if [ -e "$PROJECT/.opencode" ] && [ ! -d "$PROJECT/.opencode" ]; then
-    echo "Error: $PROJECT/.opencode exists but is not a directory."
+if [ -e "$PROJECT/.opencode-sandbox" ] && [ ! -d "$PROJECT/.opencode-sandbox" ]; then
+    echo "Error: $PROJECT/.opencode-sandbox exists but is not a directory."
     exit 1
 fi
 
-mkdir -p "$PROJECT/.opencode"
+mkdir -p "$PROJECT/.opencode-sandbox"
 
 echo
 echo "OpenCode isolated project initialized:"
 echo "  $PROJECT"
 echo
 echo "Persistent OpenCode state:"
-echo "  $PROJECT/.opencode"
+echo "  $PROJECT/.opencode-sandbox"
 echo
 echo "Start with:"
 echo "  opencode-sandbox"
