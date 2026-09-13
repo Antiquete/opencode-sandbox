@@ -130,7 +130,11 @@ echo
 echo "  ${DIM}Limits: 8G RAM | 4 CPUs | 512 processes${RST}"
 echo
 printf "Continue? [y/N]: "
-read -r CONFIRM
+if ! read -r CONFIRM; then
+    echo
+    echo "Cancelled."
+    exit 0
+fi
 
 case "$CONFIRM" in
     y|Y|yes|Yes|YES)
