@@ -5,10 +5,32 @@ PROJECT="$(cd -P "$PWD" && pwd)"
 HOME_DIR="$(cd -P "$HOME" && pwd)"
 
 IMAGE="ghcr.io/anomalyco/opencode:latest"
-NETWORK="llm-net"
 
 STATE_DIR="$PROJECT/.opencode"
 CONFIG_DIR="$HOME/.config/opencode"
+
+NETWORK=""
+OPENCODE_ARGS=()
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --docker-network)
+            if [ "$#" -lt 2 ]; then
+                echo "Error: --docker-network requires a value."
+                exit 1
+            fi
+            NETWORK="$2"
+            shift 2
+            ;;
+        --docker-network=*)
+            NETWORK="${1#*=}"
+            shift
+            ;;
+        *)
+            OPENCODE_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
 
 if [ "$PROJECT" = "$HOME_DIR" ] || [ "$PROJECT" = "/" ]; then
     echo "Error: refusing to run OpenCode in:"
@@ -66,10 +88,19 @@ CONTAINER_NAME="opencode-$(basename "$PROJECT" \
     | sed 's/^-//;s/-$//' \
     | cut -c1-40)"
 
+if [ -n "$NETWORK" ] && ! docker network inspect "$NETWORK" >/dev/null 2>&1; then
+    echo "Docker network '$NETWORK' missing - creating it..."
+    docker network create "$NETWORK" >/dev/null
+fi
+
+NET_OPTS=()
+if [ -n "$NETWORK" ]; then
+    NET_OPTS=(--network "$NETWORK")
+fi
+
 docker run --rm -it \
     --pull always \
     --name "$CONTAINER_NAME" \
-    --network "$NETWORK" \
     --cap-drop ALL \
     --security-opt no-new-privileges:true \
     --pids-limit 512 \
@@ -79,5 +110,6 @@ docker run --rm -it \
     --mount "type=bind,src=$STATE_DIR,dst=/root/.local/share/opencode" \
     --mount "type=bind,src=$CONFIG_DIR,dst=/root/.config/opencode" \
     --workdir /workspace \
+    "${NET_OPTS[@]}" \
     "$IMAGE" \
-    "$@"
+    "${OPENCODE_ARGS[@]}"
