@@ -29,8 +29,10 @@ When a release has native packages attached, prefer your package manager:
 sudo apt install ./opencode-sandbox_1.0.0_all.deb
 # Fedora
 sudo dnf install ./opencode-sandbox-1.0.0-1.noarch.rpm
-# Arch
+# Arch (binary)
 sudo pacman -U ./opencode-sandbox-1.0.0-1-any.pkg.tar.zst
+# Arch (AUR, tracks master)
+yay -S opencode-sandbox-git
 # Gentoo
 # drop opencode-sandbox-1.0.0.ebuild into a local overlay, then:
 sudo emerge opencode-sandbox
