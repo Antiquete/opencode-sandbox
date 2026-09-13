@@ -46,6 +46,17 @@ echo "  opencode-project-init"
     exit 1
 fi
 
+for path in "$PROJECT" "$CONFIG_DIR"; do
+    case "$path" in
+        *,*)
+            echo "Error: Docker --mount cannot parse ',' inside paths:"
+            echo "  $path"
+            echo "Move the project or config so no path component contains a comma."
+            exit 1
+            ;;
+    esac
+done
+
 mkdir -p "$CONFIG_DIR"
 
 B=; DIM=; GRN=; YEL=; RED=; RST=
