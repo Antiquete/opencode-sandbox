@@ -11,8 +11,9 @@ has access to only the current project - never your full home directory,
   install it (e.g. `apk add bash` on Alpine).
 - **docker** CLI in your `PATH`.
 - **A running Docker daemon** — the sandbox won't start without it.
-- **POSIX userland tools** — `basename`, `tr`, `sed`, `cut`, `cksum`, `printf`,
-  `mkdir`. These ship with every stock Linux/macOS install; no setup needed.
+- **POSIX userland tools** — `basename`, `tr`, `sed`, `cut`, `cksum`, `awk`,
+  `getconf`, `printf`, `mkdir`. These ship with every stock Linux/macOS install;
+  no setup needed.
 - **An OpenCode image** published as `ghcr.io/anomalyco/opencode:latest`
   (pulled on each run unless `--offline` is used).
 - **Docker network permissions** (only when using `--docker-network` to create
@@ -74,7 +75,10 @@ The container is launched with:
 
 - all Linux capabilities dropped (`--cap-drop ALL`)
 - privilege escalation blocked (`--security-opt no-new-privileges:true`)
-- resource limits: 8 GB RAM, 4 CPUs, 512 processes
+- resource limits that adapt to the host and work everywhere, from a Raspberry
+  Pi to a server farm: memory = 85% of available RAM with a 256 MB floor and a
+  32 GB ceiling, CPUs = all detected cores, 512 processes. If the host can't be
+  measured, a fallback of 8 GB / 4 CPUs is used.
 - interactive read/write access to the current project only
 - state persisted under `<project>/.opencode`
 - shared config at `~/.config/opencode` (read/write)

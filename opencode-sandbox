@@ -106,6 +106,68 @@ done
 
 mkdir -p "$CONFIG_DIR"
 
+PIDS_LIMIT=512
+MEM_FLOOR_BYTES=$((256 * 1048576))
+MEM_CEIL_BYTES=$((32 * 1073741824))
+
+AVAIL_KB="$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null || true)"
+case "$AVAIL_KB" in
+    ''|*[!0-9]*)
+        AVAIL_BYTES=0
+        ;;
+    *)
+        AVAIL_BYTES=$((AVAIL_KB * 1024 * 85 / 100))
+        ;;
+esac
+
+if [ "$AVAIL_BYTES" -le 0 ]; then
+    MEM_BYTES=$((8 * 1073741824))
+elif [ "$AVAIL_BYTES" -lt "$MEM_FLOOR_BYTES" ]; then
+    MEM_BYTES=$MEM_FLOOR_BYTES
+elif [ "$AVAIL_BYTES" -gt "$MEM_CEIL_BYTES" ]; then
+    MEM_BYTES=$MEM_CEIL_BYTES
+else
+    MEM_BYTES=$AVAIL_BYTES
+fi
+
+mem_display() {
+    local bytes=$1
+    if [ $((bytes % 1073741824)) -eq 0 ]; then
+        printf '%sg' "$((bytes / 1073741824))"
+    else
+        printf '%sm' "$((bytes / 1048576))"
+    fi
+}
+mem_human() {
+    printf '%s\n' "$1" | awk '{
+        if ($1 % 1073741824 == 0) printf "%dg", $1/1073741824
+        else if ($1 > 1073741824) printf "%.1fg", $1/1073741824
+        else printf "%dm", $1/1048576
+    }'
+}
+MEM_LIMIT="$(mem_display "$MEM_BYTES")"
+HOST_MEM=""
+if [ "$AVAIL_BYTES" -gt 0 ]; then
+    HOST_MEM="$(mem_human "$AVAIL_BYTES")"
+fi
+
+NCPU="$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"
+case "$NCPU" in
+    ''|*[!0-9]*)
+        NCPU="$(nproc 2>/dev/null || true)"
+        ;;
+esac
+case "$NCPU" in
+    ''|*[!0-9]*)
+        NCPU=0
+        ;;
+esac
+if [ "$NCPU" -gt 0 ]; then
+    CPUS_LIMIT=$NCPU
+else
+    CPUS_LIMIT=4
+fi
+
 B=; DIM=; GRN=; YEL=; RED=; RST=
 if [ -t 0 ] && [ -t 1 ]; then
     B=$'\033[1m'; DIM=$'\033[2m'; GRN=$'\033[32m'; YEL=$'\033[33m'; RED=$'\033[31m'; RST=$'\033[0m'
@@ -135,7 +197,11 @@ printf '  %-17s %s\n' "${YEL}config${RST}" "$CONFIG_DIR"
 echo
 printf '  %-17s %s\n' "${RED}blocked${RST}" "other projects, your home dir, ~/.ssh, Docker socket"
 echo
-echo "  ${DIM}Limits: 8G RAM | 4 CPUs | 512 processes${RST}"
+HOST_LABEL=""
+if [ -n "$HOST_MEM" ]; then
+    HOST_LABEL=" (host: ~${HOST_MEM} usable)"
+fi
+echo "  ${DIM}Limits: ${MEM_LIMIT} RAM | ${CPUS_LIMIT} CPUs | ${PIDS_LIMIT} processes${HOST_LABEL}${RST}"
 echo
 printf "Continue? [y/N]: "
 if ! read -r CONFIRM; then
@@ -186,9 +252,9 @@ docker run --rm \
     --name "$CONTAINER_NAME" \
     --cap-drop ALL \
     --security-opt no-new-privileges:true \
-    --pids-limit 512 \
-    --memory 8g \
-    --cpus 4 \
+    --pids-limit "$PIDS_LIMIT" \
+    --memory "$MEM_LIMIT" \
+    --cpus "$CPUS_LIMIT" \
     --mount "type=bind,src=$PROJECT,dst=/workspace" \
     --mount "type=bind,src=$STATE_DIR,dst=/root/.local/share/opencode" \
     --mount "type=bind,src=$CONFIG_DIR,dst=/root/.config/opencode" \
