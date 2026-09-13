@@ -88,10 +88,12 @@ case "$CONFIRM" in
         ;;
 esac
 
-CONTAINER_NAME="opencode-$(basename "$PROJECT" \
+PROJ_SLUG="$(basename "$PROJECT" \
     | tr -cs '[:alnum:]' '-' \
     | sed 's/^-//;s/-$//' \
     | cut -c1-40)"
+PROJ_HASH="$(printf '%s' "$PROJECT" | cksum | cut -d' ' -f1)"
+CONTAINER_NAME="opencode-${PROJ_SLUG}-${PROJ_HASH}"
 
 if [ -n "$NETWORK" ] && ! docker network inspect "$NETWORK" >/dev/null 2>&1; then
     echo "Docker network '$NETWORK' missing - creating it..."
