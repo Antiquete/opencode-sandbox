@@ -10,9 +10,14 @@ STATE_DIR="$PROJECT/.opencode"
 CONFIG_DIR="$HOME/.config/opencode"
 
 NETWORK=""
+PULL_ALWAYS=1
 OPENCODE_ARGS=()
 while [ "$#" -gt 0 ]; do
     case "$1" in
+        --offline)
+            PULL_ALWAYS=0
+            shift
+            ;;
         --docker-network)
             if [ "$#" -lt 2 ]; then
                 echo "Error: --docker-network requires a value."
@@ -111,6 +116,8 @@ ARG_LABEL="(none)"
 if [ "${#OPENCODE_ARGS[@]}" -gt 0 ]; then
     ARG_LABEL="${OPENCODE_ARGS[*]}"
 fi
+PULL_LABEL="always"
+[ "$PULL_ALWAYS" -eq 0 ] && PULL_LABEL="never (--offline)"
 
 echo
 echo "${B}==========================================================${RST}"
@@ -119,6 +126,7 @@ echo "${B}==========================================================${RST}"
 echo
 printf '  %-17s %s\n' "${B}Project${RST}" "$PROJECT"
 printf '  %-17s %s\n' "${B}Network${RST}" "$NET_LABEL"
+printf '  %-17s %s\n' "${B}Image pull${RST}" "$PULL_LABEL"
 printf '  %-17s %s\n' "${B}Forwarding${RST}" "$ARG_LABEL"
 echo
 printf '  %-17s %s\n' "${GRN}read/write${RST}" "everything in $PROJECT"
@@ -167,9 +175,14 @@ if [ -t 0 ] && [ -t 1 ]; then
     TTY_OPTS+=(-t)
 fi
 
+PULL_OPTS=(--pull always)
+if [ "$PULL_ALWAYS" -eq 0 ]; then
+    PULL_OPTS=(--pull never)
+fi
+
 docker run --rm \
     "${TTY_OPTS[@]}" \
-    --pull always \
+    "${PULL_OPTS[@]}" \
     --name "$CONTAINER_NAME" \
     --cap-drop ALL \
     --security-opt no-new-privileges:true \

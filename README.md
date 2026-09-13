@@ -14,7 +14,7 @@ has access to only the current project - never your full home directory,
 - **POSIX userland tools** — `basename`, `tr`, `sed`, `cut`, `cksum`, `printf`,
   `mkdir`. These ship with every stock Linux/macOS install; no setup needed.
 - **An OpenCode image** published as `ghcr.io/anomalyco/opencode:latest`
-  (pulled automatically on each run).
+  (pulled on each run unless `--offline` is used).
 - **Docker network permissions** (only when using `--docker-network` to create
   a missing network): the host user must be allowed to create Docker networks.
 
@@ -57,6 +57,7 @@ OpenCode inside the container.
 
 | Flag | Description |
 | --- | --- |
+| `--offline` | Skip the image pull (`docker run --pull never`); use whatever image is already present. Useful on offline/unreliable networks. |
 | `--docker-network <name>` | Attach the container to a named Docker network (created automatically if it doesn't exist). Defaults to Docker's default network. Useful for reaching a provider on another container (e.g. a local LLM server on `llm-net`), or `host` to reach services bound to the host's `localhost`. |
 | anything else | Forwarded to OpenCode, e.g. `--model`, `--continue`, `run`, `--help`. |
 
