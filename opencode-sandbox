@@ -48,28 +48,33 @@ fi
 
 mkdir -p "$CONFIG_DIR"
 
+B=; DIM=; GRN=; YEL=; RED=; RST=
+if [ -t 0 ] && [ -t 1 ]; then
+    B=$'\033[1m'; DIM=$'\033[2m'; GRN=$'\033[32m'; YEL=$'\033[33m'; RED=$'\033[31m'; RST=$'\033[0m'
+fi
+
+NET_LABEL="${NETWORK:-Docker default network}"
+ARG_LABEL="(none)"
+if [ "${#OPENCODE_ARGS[@]}" -gt 0 ]; then
+    ARG_LABEL="${OPENCODE_ARGS[*]}"
+fi
+
 echo
-echo "=================================================="
-echo "OpenCode Isolated"
-echo "=================================================="
+echo "${B}==========================================================${RST}"
+echo "${B}  OpenCode Isolated Sandbox${RST}"
+echo "${B}==========================================================${RST}"
 echo
-echo "Project:"
-echo "  $PROJECT"
+printf '  %-17s %s\n' "${B}Project${RST}" "$PROJECT"
+printf '  %-17s %s\n' "${B}Network${RST}" "$NET_LABEL"
+printf '  %-17s %s\n' "${B}Forwarding${RST}" "$ARG_LABEL"
 echo
-echo "OpenCode will have READ/WRITE access to everything"
-echo "inside this project."
+printf '  %-17s %s\n' "${GRN}read/write${RST}" "everything in $PROJECT"
+printf '  %-17s %s\n' "${YEL}persistent${RST}" "$STATE_DIR"
+printf '  %-17s %s\n' "${YEL}config${RST}" "$CONFIG_DIR"
 echo
-echo "It will NOT receive direct access to:"
-echo "  - other host projects"
-echo "  - your full home directory"
-echo "  - ~/.ssh"
-echo "  - Docker socket"
+printf '  %-17s %s\n' "${RED}blocked${RST}" "other projects, your home dir, ~/.ssh, Docker socket"
 echo
-echo "Project-specific persistent state:"
-echo "  $STATE_DIR"
-echo
-echo "Shared OpenCode config (READ/WRITE):"
-echo "  $CONFIG_DIR"
+echo "  ${DIM}Limits: 8G RAM | 4 CPUs | 512 processes${RST}"
 echo
 printf "Continue? [y/N]: "
 read -r CONFIRM
