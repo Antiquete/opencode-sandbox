@@ -1,5 +1,7 @@
 # OpenCode Sandbox
 
+[![CI](https://github.com/Antiquete/opencode-sandbox/actions/workflows/ci.yml/badge.svg)](https://github.com/Antiquete/opencode-sandbox/actions/workflows/ci.yml)
+
 <p align="center">
   <img src="icon.svg" alt="OpenCode Sandbox" width="128">
 </p>
