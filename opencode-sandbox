@@ -4,7 +4,7 @@ set -euo pipefail
 PROJECT="$(cd -P "$PWD" && pwd)"
 HOME_DIR="$(cd -P "$HOME" && pwd)"
 
-IMAGE="ghcr.io/anomalyco/opencode:latest"
+IMAGE="${OPENCODE_IMAGE:-ghcr.io/anomalyco/opencode:latest}"
 
 STATE_DIR="$PROJECT/.opencode-sandbox"
 CONFIG_DIR="$HOME/.config/opencode"
