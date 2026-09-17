@@ -251,7 +251,13 @@ if [ "$PULL_ALWAYS" -eq 0 ]; then
     PULL_OPTS=(--pull never)
 fi
 
-docker run --rm \
+if [ "$PULL_ALWAYS" -eq 0 ] && ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+    echo "Error: image '$IMAGE' is not present locally, but --offline skips pulling."
+    echo "Run once online to pull it, or drop --offline so it can be fetched."
+    exit 1
+fi
+
+docker run --init --rm \
     "${TTY_OPTS[@]}" \
     "${PULL_OPTS[@]}" \
     --name "$CONTAINER_NAME" \

@@ -31,7 +31,13 @@ mkdir -p "$PROJECT/.opencode-sandbox"
 GITIGNORE_STATUS="skipped (not a git repo)"
 if [ -e "$PROJECT/.git" ]; then
     GITIGNORE="$PROJECT/.gitignore"
-    if [ ! -f "$GITIGNORE" ] || ! grep -qx '.opencode-sandbox/' "$GITIGNORE" 2>/dev/null; then
+    if [ ! -f "$GITIGNORE" ]; then
+        printf '%s\n' '.opencode-sandbox/' > "$GITIGNORE"
+        GITIGNORE_STATUS="added .opencode-sandbox/"
+    elif ! grep -qx '.opencode-sandbox/' "$GITIGNORE" 2>/dev/null; then
+        if [ -s "$GITIGNORE" ] && [ "$(tail -c1 "$GITIGNORE")" != $'\n' ]; then
+            printf '\n' >> "$GITIGNORE"
+        fi
         printf '%s\n' '.opencode-sandbox/' >> "$GITIGNORE"
         GITIGNORE_STATUS="added .opencode-sandbox/"
     else
