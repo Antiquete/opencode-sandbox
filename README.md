@@ -78,6 +78,13 @@ Example with a custom network:
 opencode-sandbox --docker-network local-ai-net
 ```
 
+Custom image:
+
+```sh
+# pin a version or use a mirror registry
+OPENCODE_IMAGE=ghcr.io/anomalyco/opencode:0.9.4 opencode-sandbox
+```
+
 ## Security model
 
 The container is launched with:
