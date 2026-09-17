@@ -106,7 +106,7 @@ done
 
 mkdir -p "$CONFIG_DIR"
 
-PIDS_LIMIT=512
+PIDS_LIMIT=1024
 MEM_FLOOR_BYTES=$((256 * 1048576))
 MEM_CEIL_BYTES=$((32 * 1073741824))
 
@@ -116,7 +116,7 @@ case "$AVAIL_KB" in
         AVAIL_BYTES=0
         ;;
     *)
-        AVAIL_BYTES=$((AVAIL_KB * 1024 * 85 / 100))
+        AVAIL_BYTES=$((AVAIL_KB * 1024 * 75 / 100))
         ;;
 esac
 
