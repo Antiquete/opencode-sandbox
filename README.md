@@ -31,11 +31,11 @@ yay -S opencode-sandbox-git
 
 ```sh
 # Debian / Ubuntu
-sudo apt install ./opencode-sandbox_1.0.0_all.deb
+sudo apt install ./opencode-sandbox_*_all.deb
 # Fedora
-sudo dnf install ./opencode-sandbox-1.0.0-1.noarch.rpm
+sudo dnf install ./opencode-sandbox-*.noarch.rpm
 # Arch
-sudo pacman -U ./opencode-sandbox-1.0.0-1-any.pkg.tar.zst
+sudo pacman -U ./opencode-sandbox-*-any.pkg.tar.zst
 # Gentoo
 sudo emerge opencode-sandbox
 ```
@@ -43,8 +43,8 @@ sudo emerge opencode-sandbox
 ### Manual
 
 ```sh
-tar -xzf opencode-sandbox-1.0.0.tar.gz
-cp opencode-sandbox-1.0.0/{opencode-sandbox,opencode-project-init} ~/.local/bin
+tar -xzf opencode-sandbox-*.tar.gz
+cp opencode-sandbox-*/{opencode-sandbox,opencode-project-init} ~/.local/bin
 ```
 
 ## Usage
