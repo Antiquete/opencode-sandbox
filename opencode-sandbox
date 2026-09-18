@@ -266,6 +266,7 @@ docker run --init --rm \
     --pids-limit "$PIDS_LIMIT" \
     --memory "$MEM_LIMIT" \
     --cpus "$CPUS_LIMIT" \
+    --mount "type=tmpfs,dst=/sys/class/dmi/id" \
     --mount "type=bind,src=$PROJECT,dst=/workspace" \
     --mount "type=volume,dst=/workspace/.opencode-sandbox" \
     --mount "type=bind,src=$STATE_DIR,dst=/root/.local/share/opencode" \
