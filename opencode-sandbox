@@ -269,6 +269,7 @@ docker run --init --rm \
     --mount "type=tmpfs,dst=/sys/class/dmi/id" \
     --mount "type=tmpfs,dst=/sys/block" \
     --mount "type=tmpfs,dst=/sys/bus/pci" \
+    --mount "type=tmpfs,dst=/sys/devices/virtual/block" \
     --mount "type=bind,src=$PROJECT,dst=/workspace" \
     --mount "type=volume,dst=/workspace/.opencode-sandbox" \
     --mount "type=bind,src=$STATE_DIR,dst=/root/.local/share/opencode" \
