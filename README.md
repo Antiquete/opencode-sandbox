@@ -85,17 +85,95 @@ Custom image:
 OPENCODE_IMAGE=ghcr.io/anomalyco/opencode:0.9.4 opencode-sandbox
 ```
 
-## Security model
+## Security Model
 
 The container is launched with:
 
-- all Linux capabilities dropped (`--cap-drop ALL`)
-- privilege escalation blocked (`--security-opt no-new-privileges:true`)
-- interactive read/write access to the current project only
-- state persisted under `<project>/.opencode-sandbox`, reachable inside the container
+- All Linux capabilities dropped (`--cap-drop ALL`)
+- Privilege escalation blocked (`--security-opt no-new-privileges:true`)
+- Interactive read/write access to the current project only
+- State persisted under `<project>/.opencode-sandbox`, reachable inside the container
   only at its data path (`/root/.local/share/opencode`); it is masked out of the
   project tree so the agent can't poke at it as project content
-- shared config at `~/.config/opencode` (read/write)
+- Shared config at `~/.config/opencode` (read/write)
+
+## Security Matrix — Containerizer Comparison
+
+<table>
+  <thead>
+    <tr><th align="left">Surfaces</th><th align="center">Docker</th><th align="center">Podman</th><th align="center">Docker + gVisor</th><th align="left">Info</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>*</code></td>
+      <td align="center">Total separation ✔</td>
+      <td align="center">Total separation ✔</td>
+      <td align="center">Total separation ✔</td>
+      <td>Container can't access host system except for some read-only surfaces, depending on the containerizer used</td>
+    </tr>
+    <tr>
+      <td colspan="5" align="center"><strong>Additional Hardening</strong></td>
+    </tr>
+    <tr>
+      <td><code>/sys/class/dmi/id</code></td>
+      <td align="center">Blocked (tmpfs) ✔</td>
+      <td align="center">Blockable (tmpfs) ⧗</td>
+      <td align="center">Blockable (emulated) ⧗</td>
+      <td>Motherboard info (serial, UUID, vendor)</td>
+    </tr>
+    <tr>
+      <td><code>/sys/block</code></td>
+      <td align="center">Blocked (tmpfs) ✔</td>
+      <td align="center">Blockable (tmpfs) ⧗</td>
+      <td align="center">Blockable (emulated) ⧗</td>
+      <td>Disk model, size, type</td>
+    </tr>
+    <tr>
+      <td><code>/sys/devices/virtual/block</code></td>
+      <td align="center">Blocked (tmpfs) ✔</td>
+      <td align="center">Blockable (tmpfs) ⧗</td>
+      <td align="center">Blockable (emulated) ⧗</td>
+      <td>Encrypted disk setup (dm names, LUKS, backing devices)</td>
+    </tr>
+    <tr>
+      <td><code>/sys/bus/pci</code></td>
+      <td align="center">Blocked (tmpfs) ✔</td>
+      <td align="center">Blockable (tmpfs) ⧗</td>
+      <td align="center">Blockable (emulated) ⧗</td>
+      <td>GPUs and other PCI hardware (vendor/model, driver)</td>
+    </tr>
+    <tr>
+      <td><code>/proc/cmdline</code></td>
+      <td align="center">Docker limitation ✘</td>
+      <td align="center">Blockable (masked path) ⧗</td>
+      <td align="center">Blockable (emulated) ⧗</td>
+      <td>Kernel boot options (root disk, LUKS UUIDs, security)</td>
+    </tr>
+    <tr>
+      <td><code>/proc/cpuinfo</code></td>
+      <td align="center">Docker limitation ✘</td>
+      <td align="center">Blockable (masked path) ⧗</td>
+      <td align="center">Blockable (emulated) ⧗</td>
+      <td>CPU model and core count</td>
+    </tr>
+    <tr>
+      <td><code>/proc/meminfo</code></td>
+      <td align="center">Docker limitation ✘</td>
+      <td align="center">Blockable (masked path) ⧗</td>
+      <td align="center">Blockable (emulated) ⧗</td>
+      <td>Host memory (total, swap)</td>
+    </tr>
+    <tr>
+      <td><code>/proc/self/mountinfo</code></td>
+      <td align="center">Docker limitation ✘</td>
+      <td align="center">Podman limitation ✘</td>
+      <td align="center">Blockable (emulated) ⧗</td>
+      <td>The container's own mounts and their host mapping</td>
+    </tr>
+  </tbody>
+</table>
+
+**Legend:** `✔` implemented · `⧗` planned · `✘` Docker/Podman limitation
 
 ## License
 
