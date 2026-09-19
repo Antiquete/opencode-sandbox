@@ -6,6 +6,7 @@ HOME_DIR="$(cd -P "$HOME" && pwd)"
 
 IMAGE="${OPENCODE_IMAGE:-ghcr.io/anomalyco/opencode:latest}"
 RUNTIME="${OPENCODE_RUNTIME:-auto}"
+GVISOR="${OPENCODE_GVISOR:-0}"
 
 STATE_DIR="$PROJECT/.opencode-sandbox"
 CONFIG_DIR="$HOME/.config/opencode"
@@ -41,6 +42,10 @@ while [ "$#" -gt 0 ]; do
             ;;
         --runtime=*)
             RUNTIME="${1#*=}"
+            shift
+            ;;
+        --gvisor)
+            GVISOR=1
             shift
             ;;
         *)
@@ -109,7 +114,11 @@ case "$RUNTIME" in
             RUNTIME_CMD=podman
         else
             echo "Error: no container runtime found."
-            echo "Install Docker (with the daemon running) or Podman and make sure it is in your PATH."
+            if [ "$GVISOR" -eq 1 ]; then
+                echo "Install Docker (with the daemon running) — gVisor's runsc is a Docker runtime."
+            else
+                echo "Install Docker (with the daemon running) or Podman and make sure it is in your PATH."
+            fi
             exit 1
         fi
         ;;
@@ -118,6 +127,24 @@ case "$RUNTIME" in
         exit 1
         ;;
 esac
+
+if [ "$GVISOR" -eq 1 ]; then
+    if [ "$RUNTIME_CMD" != docker ]; then
+        echo "Error: --gvisor requires Docker (runsc is registered as a Docker runtime)."
+        echo "Install gVisor and add runsc to /etc/docker/daemon.json, then run without --runtime podman."
+        exit 1
+    fi
+    if ! docker info >/dev/null 2>&1; then
+        echo "Error: cannot reach the docker daemon (required for --gvisor)."
+        exit 1
+    fi
+    if ! docker info 2>/dev/null | grep -q runsc; then
+        echo "Error: --gvisor needs the 'runsc' runtime, but it isn't registered with Docker."
+        echo "Install gVisor and add to /etc/docker/daemon.json, then restart Docker:"
+        echo "  { \"runtimes\": { \"runsc\": { \"path\": \"/usr/local/bin/runsc\" } } }"
+        exit 1
+    fi
+fi
 
 if ! command -v "$RUNTIME_CMD" >/dev/null 2>&1; then
     echo "Error: the '$RUNTIME_CMD' CLI was not found."
@@ -231,6 +258,9 @@ LOGO
 printf '  %s\n' "${GRN}${B}${PROJ_NAME}${RST}${DIM} - isolated session${RST}"
 printf '  %-17s %s\n' "${B}Project${RST}" "$PROJECT"
 printf '  %-17s %s\n' "${B}Network${RST}" "$NET_LABEL"
+RUNTIME_LABEL="$RUNTIME_CMD"
+[ "$GVISOR" -eq 1 ] && RUNTIME_LABEL="$RUNTIME_CMD (gVisor runsc)"
+printf '  %-17s %s\n' "${B}Runtime${RST}" "$RUNTIME_LABEL"
 printf '  %-17s %s\n' "${B}Image pull${RST}" "$PULL_LABEL"
 printf '  %-17s %s\n' "${B}Forwarding${RST}" "$ARG_LABEL"
 echo
@@ -305,9 +335,15 @@ else
     SEC_OPTS=(--cap-drop ALL --security-opt no-new-privileges:true)
 fi
 
+RUN_OPTS=()
+if [ "$GVISOR" -eq 1 ]; then
+    RUN_OPTS+=(--runtime runsc)
+fi
+
 "$RUNTIME_CMD" run --init --rm \
     "${TTY_OPTS[@]}" \
     "${PULL_OPTS[@]}" \
+    "${RUN_OPTS[@]}" \
     --name "$CONTAINER_NAME" \
     "${SEC_OPTS[@]}" \
     --pids-limit "$PIDS_LIMIT" \
