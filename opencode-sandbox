@@ -329,8 +329,20 @@ if [ "$RUNTIME_CMD" = "podman" ]; then
     SEC_OPTS=(
         --cap-drop ALL
         --security-opt no-new-privileges
-        --security-opt "mask=/proc/cmdline:/proc/cpuinfo:/proc/meminfo"
     )
+    MASK_PATHS=""
+    for mask_path in /proc/cmdline /proc/cpuinfo /proc/meminfo; do
+        if [ -e "$mask_path" ]; then
+            if [ -n "$MASK_PATHS" ]; then
+                MASK_PATHS="${MASK_PATHS}:${mask_path}"
+            else
+                MASK_PATHS="$mask_path"
+            fi
+        fi
+    done
+    if [ -n "$MASK_PATHS" ]; then
+        SEC_OPTS+=(--security-opt "mask=$MASK_PATHS")
+    fi
 else
     SEC_OPTS=(--cap-drop ALL --security-opt no-new-privileges:true)
 fi
@@ -339,6 +351,19 @@ RUN_OPTS=()
 if [ "$GVISOR" -eq 1 ]; then
     RUN_OPTS+=(--runtime runsc)
 fi
+
+MOUNT_OPTS=()
+for sys_path in /sys/class/dmi/id /sys/block /sys/bus/pci /sys/devices/virtual/block; do
+    if [ -e "$sys_path" ]; then
+        MOUNT_OPTS+=(--mount "type=tmpfs,dst=$sys_path")
+    fi
+done
+MOUNT_OPTS+=(
+    --mount "type=bind,src=$PROJECT,dst=/workspace"
+    --mount "type=volume,dst=/workspace/.opencode-sandbox"
+    --mount "type=bind,src=$STATE_DIR,dst=/root/.local/share/opencode"
+    --mount "type=bind,src=$CONFIG_DIR,dst=/root/.config/opencode"
+)
 
 "$RUNTIME_CMD" run --init --rm \
     "${TTY_OPTS[@]}" \
@@ -349,14 +374,7 @@ fi
     --pids-limit "$PIDS_LIMIT" \
     --memory "$MEM_LIMIT" \
     --cpus "$CPUS_LIMIT" \
-    --mount "type=tmpfs,dst=/sys/class/dmi/id" \
-    --mount "type=tmpfs,dst=/sys/block" \
-    --mount "type=tmpfs,dst=/sys/bus/pci" \
-    --mount "type=tmpfs,dst=/sys/devices/virtual/block" \
-    --mount "type=bind,src=$PROJECT,dst=/workspace" \
-    --mount "type=volume,dst=/workspace/.opencode-sandbox" \
-    --mount "type=bind,src=$STATE_DIR,dst=/root/.local/share/opencode" \
-    --mount "type=bind,src=$CONFIG_DIR,dst=/root/.config/opencode" \
+    "${MOUNT_OPTS[@]}" \
     --workdir /workspace \
     "${NET_OPTS[@]}" \
     "$IMAGE" \
