@@ -17,7 +17,7 @@ Session remains preserved, start where you left off. Only the container resets, 
 
 ## Requirements
 
-- **docker** CLI and a running Docker daemon
+- **docker** or **podman** CLI with a running daemon
 
 ## Installing
 
@@ -67,8 +67,9 @@ opencode-sandbox --continue
 
 | Flag                      | Description                                                                                                                                                                                                                                                                                                                        |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--offline`               | Skip the image pull (`docker run --pull never`); use whatever image is already present. Useful on offline/unreliable networks.                                                                                                                                                                                                     |
-| `--docker-network <name>` | Attach the container to a named Docker network (created automatically if it doesn't exist; requires permission to create networks). Defaults to Docker's default network. Useful for reaching a provider on another container (e.g. a local LLM server on `local-ai-net`), or `host` to reach services bound to the host's `localhost`. |
+| `--offline`               | Skip the image pull (`--pull never`); use whatever image is already present. Useful on offline/unreliable networks.                                                                                                                                                                                                                 |
+| `--runtime <name>`        | Force a container runtime: `docker`, `podman`, or `auto` (default). `auto` uses whichever is installed and running.                                                                                                                                                                                                                 |
+| `--docker-network <name>` | Attach the container to a named network (created automatically if it doesn't exist; requires permission to create networks). Defaults to the runtime's default network. Useful for reaching a provider on another container (e.g. a local LLM server on `local-ai-net`), or `host` to reach services bound to the host's `localhost`. |
 | anything else             | Forwarded to OpenCode, e.g. `--model`, `--continue`, `run`, `--help`.                                                                                                                                                                                                                                                              |
 
 Example with a custom network:
@@ -90,12 +91,16 @@ OPENCODE_IMAGE=ghcr.io/anomalyco/opencode:0.9.4 opencode-sandbox
 The container is launched with:
 
 - All Linux capabilities dropped (`--cap-drop ALL`)
-- Privilege escalation blocked (`--security-opt no-new-privileges:true`)
+- Privilege escalation blocked (`--security-opt no-new-privileges`)
 - Interactive read/write access to the current project only
 - State persisted under `<project>/.opencode-sandbox`, reachable inside the container
   only at its data path (`/root/.local/share/opencode`); it is masked out of the
   project tree so the agent can't poke at it as project content
 - Shared config at `~/.config/opencode` (read/write)
+
+Both runtimes mask the four host `/sys` surfaces on tmpfs. Podman additionally
+masks `/proc/cmdline`, `/proc/cpuinfo`, and `/proc/meminfo`
+(`--security-opt mask=…`) — paths Docker cannot mask.
 
 ## Security Matrix — Containerizer Comparison
 
@@ -117,49 +122,49 @@ The container is launched with:
     <tr>
       <td><code>/sys/class/dmi/id</code></td>
       <td align="center">Blocked (tmpfs) ✔</td>
-      <td align="center">Blockable (tmpfs) ⧗</td>
+      <td align="center">Blocked (tmpfs) ✔</td>
       <td align="center">Blockable (emulated) ⧗</td>
       <td>Motherboard info (serial, UUID, vendor)</td>
     </tr>
     <tr>
       <td><code>/sys/block</code></td>
       <td align="center">Blocked (tmpfs) ✔</td>
-      <td align="center">Blockable (tmpfs) ⧗</td>
+      <td align="center">Blocked (tmpfs) ✔</td>
       <td align="center">Blockable (emulated) ⧗</td>
       <td>Disk model, size, type</td>
     </tr>
     <tr>
       <td><code>/sys/devices/virtual/block</code></td>
       <td align="center">Blocked (tmpfs) ✔</td>
-      <td align="center">Blockable (tmpfs) ⧗</td>
+      <td align="center">Blocked (tmpfs) ✔</td>
       <td align="center">Blockable (emulated) ⧗</td>
       <td>Encrypted disk setup (dm names, LUKS, backing devices)</td>
     </tr>
     <tr>
       <td><code>/sys/bus/pci</code></td>
       <td align="center">Blocked (tmpfs) ✔</td>
-      <td align="center">Blockable (tmpfs) ⧗</td>
+      <td align="center">Blocked (tmpfs) ✔</td>
       <td align="center">Blockable (emulated) ⧗</td>
       <td>GPUs and other PCI hardware (vendor/model, driver)</td>
     </tr>
     <tr>
       <td><code>/proc/cmdline</code></td>
       <td align="center">Docker limitation ✘</td>
-      <td align="center">Blockable (masked path) ⧗</td>
+      <td align="center">Blocked (masked path) ✔</td>
       <td align="center">Blockable (emulated) ⧗</td>
       <td>Kernel boot options (root disk, LUKS UUIDs, security)</td>
     </tr>
     <tr>
       <td><code>/proc/cpuinfo</code></td>
       <td align="center">Docker limitation ✘</td>
-      <td align="center">Blockable (masked path) ⧗</td>
+      <td align="center">Blocked (masked path) ✔</td>
       <td align="center">Blockable (emulated) ⧗</td>
       <td>CPU model and core count</td>
     </tr>
     <tr>
       <td><code>/proc/meminfo</code></td>
       <td align="center">Docker limitation ✘</td>
-      <td align="center">Blockable (masked path) ⧗</td>
+      <td align="center">Blocked (masked path) ✔</td>
       <td align="center">Blockable (emulated) ⧗</td>
       <td>Host memory (total, swap)</td>
     </tr>
