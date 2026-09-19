@@ -5,6 +5,7 @@ PROJECT="$(cd -P "$PWD" && pwd)"
 HOME_DIR="$(cd -P "$HOME" && pwd)"
 
 IMAGE="${OPENCODE_IMAGE:-ghcr.io/anomalyco/opencode:latest}"
+RUNTIME="${OPENCODE_RUNTIME:-auto}"
 
 STATE_DIR="$PROJECT/.opencode-sandbox"
 CONFIG_DIR="$HOME/.config/opencode"
@@ -28,6 +29,18 @@ while [ "$#" -gt 0 ]; do
             ;;
         --docker-network=*)
             NETWORK="${1#*=}"
+            shift
+            ;;
+        --runtime)
+            if [ "$#" -lt 2 ]; then
+                echo "Error: --runtime requires a value."
+                exit 1
+            fi
+            RUNTIME="$2"
+            shift 2
+            ;;
+        --runtime=*)
+            RUNTIME="${1#*=}"
             shift
             ;;
         *)
@@ -81,22 +94,47 @@ if [ "${BASH_VERSION:-}" = "" ]; then
     exit 1
 fi
 
-if ! command -v docker >/dev/null 2>&1; then
-    echo "Error: the 'docker' CLI was not found."
-    echo "Install Docker and make sure it is in your PATH."
+RUNTIME_CMD=""
+case "$RUNTIME" in
+    docker)
+        RUNTIME_CMD=docker
+        ;;
+    podman)
+        RUNTIME_CMD=podman
+        ;;
+    auto)
+        if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+            RUNTIME_CMD=docker
+        elif command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1; then
+            RUNTIME_CMD=podman
+        else
+            echo "Error: no container runtime found."
+            echo "Install Docker (with the daemon running) or Podman and make sure it is in your PATH."
+            exit 1
+        fi
+        ;;
+    *)
+        echo "Error: unknown runtime '$RUNTIME' (expected 'docker', 'podman', or 'auto')."
+        exit 1
+        ;;
+esac
+
+if ! command -v "$RUNTIME_CMD" >/dev/null 2>&1; then
+    echo "Error: the '$RUNTIME_CMD' CLI was not found."
+    echo "Install it and make sure it is in your PATH."
     exit 1
 fi
 
-if ! docker info >/dev/null 2>&1; then
-    echo "Error: cannot reach the Docker daemon."
-    echo "Is Docker running? Check with: docker info"
+if ! "$RUNTIME_CMD" info >/dev/null 2>&1; then
+    echo "Error: cannot reach the $RUNTIME_CMD daemon."
+    echo "Is it running? Check with: $RUNTIME_CMD info"
     exit 1
 fi
 
 for path in "$PROJECT" "$CONFIG_DIR"; do
     case "$path" in
         *,*)
-            echo "Error: Docker --mount cannot parse ',' inside paths:"
+            echo "Error: container --mount cannot parse ',' inside paths:"
             echo "  $path"
             echo "Move the project or config so no path component contains a comma."
             exit 1
@@ -173,7 +211,7 @@ if [ -t 0 ] && [ -t 1 ]; then
     B=$'\033[1m'; DIM=$'\033[2m'; GRN=$'\033[32m'; YEL=$'\033[33m'; RED=$'\033[31m'; RST=$'\033[0m'
 fi
 
-NET_LABEL="${NETWORK:-Docker default network}"
+NET_LABEL="${NETWORK:-${RUNTIME_CMD} default network}"
 ARG_LABEL="(none)"
 if [ "${#OPENCODE_ARGS[@]}" -gt 0 ]; then
     ARG_LABEL="${OPENCODE_ARGS[*]}"
@@ -231,9 +269,9 @@ PROJ_SLUG="$(basename "$PROJECT" \
 PROJ_HASH="$(printf '%s' "$PROJECT" | cksum | cut -d' ' -f1)"
 CONTAINER_NAME="opencode-${PROJ_SLUG}-${PROJ_HASH}"
 
-if [ -n "$NETWORK" ] && ! docker network inspect "$NETWORK" >/dev/null 2>&1; then
-    echo "Docker network '$NETWORK' missing - creating it..."
-    docker network create "$NETWORK" >/dev/null
+if [ -n "$NETWORK" ] && ! "$RUNTIME_CMD" network inspect "$NETWORK" >/dev/null 2>&1; then
+    echo "${RUNTIME_CMD} network '$NETWORK' missing - creating it..."
+    "$RUNTIME_CMD" network create "$NETWORK" >/dev/null
 fi
 
 NET_OPTS=()
@@ -251,18 +289,27 @@ if [ "$PULL_ALWAYS" -eq 0 ]; then
     PULL_OPTS=(--pull never)
 fi
 
-if [ "$PULL_ALWAYS" -eq 0 ] && ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+if [ "$PULL_ALWAYS" -eq 0 ] && ! "$RUNTIME_CMD" image inspect "$IMAGE" >/dev/null 2>&1; then
     echo "Error: image '$IMAGE' is not present locally, but --offline skips pulling."
     echo "Run once online to pull it, or drop --offline so it can be fetched."
     exit 1
 fi
 
-docker run --init --rm \
+if [ "$RUNTIME_CMD" = "podman" ]; then
+    SEC_OPTS=(
+        --cap-drop ALL
+        --security-opt no-new-privileges
+        --security-opt "mask=/proc/cmdline:/proc/cpuinfo:/proc/meminfo"
+    )
+else
+    SEC_OPTS=(--cap-drop ALL --security-opt no-new-privileges:true)
+fi
+
+"$RUNTIME_CMD" run --init --rm \
     "${TTY_OPTS[@]}" \
     "${PULL_OPTS[@]}" \
     --name "$CONTAINER_NAME" \
-    --cap-drop ALL \
-    --security-opt no-new-privileges:true \
+    "${SEC_OPTS[@]}" \
     --pids-limit "$PIDS_LIMIT" \
     --memory "$MEM_LIMIT" \
     --cpus "$CPUS_LIMIT" \
