@@ -18,6 +18,7 @@ Session remains preserved, start where you left off. Only the container resets, 
 ## Requirements
 
 - **docker** or **podman** CLI with a running daemon
+- **gVisor** (optional) — only needed for `--gvisor`; install `runsc` and register it as a Docker runtime
 
 ## Installing
 
@@ -69,6 +70,7 @@ opencode-sandbox --continue
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--offline`               | Skip the image pull (`--pull never`); use whatever image is already present. Useful on offline/unreliable networks.                                                                                                                                                                                                                 |
 | `--runtime <name>`        | Force a container runtime: `docker`, `podman`, or `auto` (default). `auto` uses whichever is installed and running.                                                                                                                                                                                                                 |
+| `--gvisor`                | Run under gVisor's `runsc` sandboxing runtime instead of the default `runc` (Docker only; requires the `runsc` runtime registered in `/etc/docker/daemon.json`). `runsc` runs the container in a userspace kernel, so host `/proc` and `/sys` surfaces are emulated, not exposed.                                                     |
 | `--docker-network <name>` | Attach the container to a named network (created automatically if it doesn't exist; requires permission to create networks). Defaults to the runtime's default network. Useful for reaching a provider on another container (e.g. a local LLM server on `local-ai-net`), or `host` to reach services bound to the host's `localhost`. |
 | anything else             | Forwarded to OpenCode, e.g. `--model`, `--continue`, `run`, `--help`.                                                                                                                                                                                                                                                              |
 
@@ -102,6 +104,10 @@ Both runtimes mask the four host `/sys` surfaces on tmpfs. Podman additionally
 masks `/proc/cmdline`, `/proc/cpuinfo`, and `/proc/meminfo`
 (`--security-opt mask=…`) — paths Docker cannot mask.
 
+With `--gvisor`, the container runs under gVisor's `runsc`, a userspace kernel,
+so the host `/proc` and `/sys` surfaces are emulated instead of exposed — even
+paths Docker cannot mask. Requires the `runsc` runtime registered with Docker.
+
 ## Security Matrix — Containerizer Comparison
 
 <table>
@@ -123,56 +129,56 @@ masks `/proc/cmdline`, `/proc/cpuinfo`, and `/proc/meminfo`
       <td><code>/sys/class/dmi/id</code></td>
       <td align="center">Blocked (tmpfs) ✔</td>
       <td align="center">Blocked (tmpfs) ✔</td>
-      <td align="center">Blockable (emulated) ⧗</td>
+      <td align="center">Emulated ✔</td>
       <td>Motherboard info (serial, UUID, vendor)</td>
     </tr>
     <tr>
       <td><code>/sys/block</code></td>
       <td align="center">Blocked (tmpfs) ✔</td>
       <td align="center">Blocked (tmpfs) ✔</td>
-      <td align="center">Blockable (emulated) ⧗</td>
+      <td align="center">Emulated ✔</td>
       <td>Disk model, size, type</td>
     </tr>
     <tr>
       <td><code>/sys/devices/virtual/block</code></td>
       <td align="center">Blocked (tmpfs) ✔</td>
       <td align="center">Blocked (tmpfs) ✔</td>
-      <td align="center">Blockable (emulated) ⧗</td>
+      <td align="center">Emulated ✔</td>
       <td>Encrypted disk setup (dm names, LUKS, backing devices)</td>
     </tr>
     <tr>
       <td><code>/sys/bus/pci</code></td>
       <td align="center">Blocked (tmpfs) ✔</td>
       <td align="center">Blocked (tmpfs) ✔</td>
-      <td align="center">Blockable (emulated) ⧗</td>
+      <td align="center">Emulated ✔</td>
       <td>GPUs and other PCI hardware (vendor/model, driver)</td>
     </tr>
     <tr>
       <td><code>/proc/cmdline</code></td>
       <td align="center">Docker limitation ✘</td>
       <td align="center">Blocked (masked path) ✔</td>
-      <td align="center">Blockable (emulated) ⧗</td>
+      <td align="center">Emulated ✔</td>
       <td>Kernel boot options (root disk, LUKS UUIDs, security)</td>
     </tr>
     <tr>
       <td><code>/proc/cpuinfo</code></td>
       <td align="center">Docker limitation ✘</td>
       <td align="center">Blocked (masked path) ✔</td>
-      <td align="center">Blockable (emulated) ⧗</td>
+      <td align="center">Emulated ✔</td>
       <td>CPU model and core count</td>
     </tr>
     <tr>
       <td><code>/proc/meminfo</code></td>
       <td align="center">Docker limitation ✘</td>
       <td align="center">Blocked (masked path) ✔</td>
-      <td align="center">Blockable (emulated) ⧗</td>
+      <td align="center">Emulated ✔</td>
       <td>Host memory (total, swap)</td>
     </tr>
     <tr>
       <td><code>/proc/self/mountinfo</code></td>
       <td align="center">Docker limitation ✘</td>
       <td align="center">Podman limitation ✘</td>
-      <td align="center">Blockable (emulated) ⧗</td>
+      <td align="center">Emulated ✔</td>
       <td>The container's own mounts and their host mapping</td>
     </tr>
   </tbody>
