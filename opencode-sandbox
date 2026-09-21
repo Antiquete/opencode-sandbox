@@ -379,7 +379,7 @@ MOUNT_OPTS+=(
 )
 MOUNT_OPTS+=(
     --mount "type=bind,src=$PROJECT,dst=/workspace,$NONRECURSIVE,bind-propagation=rprivate"
-    --mount "type=volume,dst=/workspace/.opencode-sandbox"
+    --mount "type=tmpfs,dst=/workspace/.opencode-sandbox,readonly,tmpfs-size=4096$EMPTY_TMPFS"
     --mount "type=bind,src=$STATE_DIR,dst=/root/.local/share/opencode,$NONRECURSIVE,bind-propagation=rprivate"
     --mount "type=bind,src=$CONFIG_DIR,dst=/root/.config/opencode,$CONFIG_MODE,$NONRECURSIVE,bind-propagation=rprivate"
     --mount "type=bind,src=$LAUNCH_DIR/resolv.conf,dst=/etc/resolv.conf,readonly"
