@@ -109,7 +109,8 @@ own network namespace (unless `--docker-network host` is used).
 
 The agent is also pinned to the CPUs its quota implies, so tools that report
 core counts (`nproc`, `/proc/cpuinfo`, `Cpus_allowed`) show the sandbox size
-instead of your host's hardware.
+instead of your host's hardware. Project and config are mounted non-recursively
+with private propagation, so nested mounts on your host don't leak in.
 
 Both runtimes mask the host `/sys` fingerprint surfaces on read-only tmpfs
 (`/sys/devices`, `/sys/module`, `/sys/bus/pci|usb|scsi`, `/sys/block`,
