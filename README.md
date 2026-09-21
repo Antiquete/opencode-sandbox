@@ -72,6 +72,7 @@ opencode-sandbox --continue
 | `--runtime <name>`        | Force a container runtime: `docker`, `podman`, or `auto` (default). `auto` uses whichever is installed and running.                                                                                                                                                                                                                 |
 | `--gvisor`                | Run under gVisor's `runsc` sandboxing runtime instead of the default `runc` (Docker only; requires the `runsc` runtime registered in `/etc/docker/daemon.json`). `runsc` runs the container in a userspace kernel, so host `/proc` and `/sys` surfaces are emulated, not exposed.                                                     |
 | `--docker-network <name>` | Attach the container to a named network (created automatically if it doesn't exist; requires permission to create networks). Defaults to the runtime's default network. Useful for reaching a provider on another container (e.g. a local LLM server on `local-ai-net`), or `host` to reach services bound to the host's `localhost`. |
+| `--config-rw`            | Mount the shared config `~/.config/opencode` read-write instead of read-only. Needed to sign in or edit config from inside the sandbox. The host config changes persist. |
 | anything else             | Forwarded to OpenCode, e.g. `--model`, `--continue`, `run`, `--help`.                                                                                                                                                                                                                                                              |
 
 Example with a custom network:
@@ -98,7 +99,8 @@ The container is launched with:
 - State persisted under `<project>/.opencode-sandbox`, reachable inside the container
   only at its data path (`/root/.local/share/opencode`); it is masked out of the
   project tree so the agent can't poke at it as project content
-- Shared config at `~/.config/opencode` (read/write)
+- Shared config at `~/.config/opencode` (read-only by default; opt into
+  read/write with `--config-rw`)
 
 The container starts with sane resource limits: 4 GB RAM, 2 CPUs, and
 1024 processes. To override, set `OPENCODE_MEMORY`, `OPENCODE_CPUS`, or
