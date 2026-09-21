@@ -9,7 +9,7 @@ RUNTIME="${OPENCODE_RUNTIME:-auto}"
 GVISOR="${OPENCODE_GVISOR:-0}"
 
 STATE_DIR="$PROJECT/.opencode-sandbox"
-CONFIG_DIR="$HOME/.config/opencode"
+CONFIG_DIR="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
 
 NETWORK=""
 PULL_ALWAYS=1
@@ -163,18 +163,29 @@ if ! "$RUNTIME_CMD" info >/dev/null 2>&1; then
     exit 1
 fi
 
-for path in "$PROJECT" "$CONFIG_DIR"; do
+case "$CONFIG_DIR" in
+    /*) ;;
+    *) echo "Error: OPENCODE_CONFIG_DIR must be an absolute path."; exit 1 ;;
+esac
+mkdir -p -- "$CONFIG_DIR"
+CONFIG_DIR="$(cd -P -- "$CONFIG_DIR" && pwd)"
+# A read-only config bind is ineffective if the same data is also reachable
+# through the writable workspace bind. Ancestors expose project data as config.
+if [ "$CONFIG_DIR" = "$PROJECT" ] || [[ "$CONFIG_DIR" == "$PROJECT/"* ]] || [[ "$PROJECT" == "$CONFIG_DIR/"* ]] || [ "$CONFIG_DIR" = / ]; then
+    echo "Error: shared config and project directories must not overlap."
+    exit 1
+fi
+
+for path in "$PROJECT" "$STATE_DIR" "$CONFIG_DIR"; do
     case "$path" in
-        *,*)
-            echo "Error: container --mount cannot parse ',' inside paths:"
+        *,*|*\"*|*$'\n'*|*$'\r'*)
+            echo "Error: container mount paths cannot contain commas, quotes, or newlines:"
             echo "  $path"
             echo "Move the project or config so no path component contains a comma."
             exit 1
             ;;
     esac
 done
-
-mkdir -p "$CONFIG_DIR"
 
 # A bind mount also grants access to Unix sockets and hard-linked host files.
 # Read-only mounts do not prevent connecting to a host Unix socket.

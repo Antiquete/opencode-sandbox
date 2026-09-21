@@ -121,7 +121,10 @@ opencode-sandbox`).
 
 Before launching, the shared directories are checked for Unix sockets, device
 nodes, FIFOs, and hard-linked files (they would expose host IPC or host files
-through the mounts); the sandbox refuses to start if any are found.
+through the mounts); the sandbox refuses to start if any are found. The config
+and project directories must not overlap, and paths containing commas, quotes,
+or newlines are rejected (they would break the container mounts). To share a
+config location other than `~/.config/opencode`, set `OPENCODE_CONFIG_DIR`.
 
 Both runtimes mask the host `/sys` fingerprint surfaces on read-only tmpfs
 (`/sys/devices`, `/sys/module`, `/sys/bus/pci|usb|scsi`, `/sys/block`,
