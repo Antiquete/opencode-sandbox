@@ -217,6 +217,18 @@ paths Docker cannot mask. Requires the `runsc` runtime registered with Docker.
 
 **Legend:** `✔` implemented · `⧗` planned · `✘` Docker/Podman limitation
 
+## Planned Features
+
+- **Seccomp guard** — a small static supervisor that intercepts the sandboxed
+  agent's `open(2)` calls and lets through only the project, config, and state
+  paths. Planned to close the remaining host-path and host-metadata leaks
+  (`/proc/self/mountinfo`, `/dev/fd`, kernel boot params) that masks can't fully
+  cover.
+- **Kata VM (`--vm`)** — an optional Kata Containers (QEMU-backed) runtime that
+  runs the session in its own virtual machine, so host firmware and kernel
+  surfaces are emulated rather than exposed. Requires `/dev/kvm` and a Kata
+  runtime registered with the container daemon.
+
 ## License
 
 GPL-3.0-or-later — see [LICENSE](LICENSE).
