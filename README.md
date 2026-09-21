@@ -104,6 +104,9 @@ The container starts with sane resource limits: 4 GB RAM, 2 CPUs, and
 1024 processes. To override, set `OPENCODE_MEMORY`, `OPENCODE_CPUS`, or
 `OPENCODE_PIDS` (e.g. `OPENCODE_MEMORY=8g opencode-sandbox`).
 
+Network internals are hardened with conservative defaults in the container's
+own network namespace (unless `--docker-network host` is used).
+
 Both runtimes mask the four host `/sys` surfaces on tmpfs. Podman additionally
 masks `/proc/cmdline`, `/proc/cpuinfo`, and `/proc/meminfo`
 (`--security-opt mask=…`) — paths Docker cannot mask.

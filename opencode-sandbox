@@ -291,7 +291,12 @@ else
     SEC_OPTS=(--cap-drop ALL --security-opt no-new-privileges:true)
 fi
 
-RUN_OPTS=()
+RUN_OPTS=(--sysctl net.ipv4.ip_forward=0 --sysctl net.core.somaxconn=1111 \
+    --sysctl net.ipv4.tcp_fin_timeout=9 --sysctl "net.ipv4.ip_local_port_range=10000 20000")
+if [ "$NETWORK" = host ]; then
+    # These sysctls are safe only in a separate network namespace.
+    RUN_OPTS=()
+fi
 if [ "$GVISOR" -eq 1 ]; then
     RUN_OPTS+=(--runtime runsc)
 fi
