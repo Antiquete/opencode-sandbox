@@ -302,11 +302,23 @@ if [ "$GVISOR" -eq 1 ]; then
 fi
 
 MOUNT_OPTS=()
-for sys_path in /sys/class/dmi/id /sys/block /sys/bus/pci /sys/devices/virtual/block; do
-    if [ -e "$sys_path" ]; then
-        MOUNT_OPTS+=(--mount "type=tmpfs,dst=$sys_path")
-    fi
-done
+EMPTY_TMPFS=""
+if [ "$RUNTIME_CMD" = podman ]; then
+    # Podman otherwise copies the hidden source contents into the mask.
+    EMPTY_TMPFS=,notmpcopyup
+fi
+MOUNT_OPTS+=(
+    --mount "type=tmpfs,dst=/sys/devices,readonly,tmpfs-size=4096$EMPTY_TMPFS"
+    --mount "type=tmpfs,dst=/sys/module,readonly,tmpfs-size=4096$EMPTY_TMPFS"
+    --mount "type=tmpfs,dst=/sys/bus/pci,readonly,tmpfs-size=4096$EMPTY_TMPFS"
+    --mount "type=tmpfs,dst=/sys/bus/usb,readonly,tmpfs-size=4096$EMPTY_TMPFS"
+    --mount "type=tmpfs,dst=/sys/bus/scsi,readonly,tmpfs-size=4096$EMPTY_TMPFS"
+    --mount "type=tmpfs,dst=/sys/block,readonly,tmpfs-size=4096$EMPTY_TMPFS"
+    --mount "type=tmpfs,dst=/sys/class/dmi/id,readonly,tmpfs-size=4096$EMPTY_TMPFS"
+    --mount "type=tmpfs,dst=/sys/kernel,readonly,tmpfs-size=4096$EMPTY_TMPFS"
+    --mount "type=tmpfs,dst=/sys/power,readonly,tmpfs-size=4096$EMPTY_TMPFS"
+    --mount "type=tmpfs,dst=/sys/fs/pstore,readonly,tmpfs-size=4096$EMPTY_TMPFS"
+)
 MOUNT_OPTS+=(
     --mount "type=bind,src=$PROJECT,dst=/workspace"
     --mount "type=volume,dst=/workspace/.opencode-sandbox"

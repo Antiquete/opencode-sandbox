@@ -107,8 +107,10 @@ The container starts with sane resource limits: 4 GB RAM, 2 CPUs, and
 Network internals are hardened with conservative defaults in the container's
 own network namespace (unless `--docker-network host` is used).
 
-Both runtimes mask the four host `/sys` surfaces on tmpfs. Podman additionally
-masks `/proc/cmdline`, `/proc/cpuinfo`, and `/proc/meminfo`
+Both runtimes mask the host `/sys` fingerprint surfaces on read-only tmpfs
+(`/sys/devices`, `/sys/module`, `/sys/bus/pci|usb|scsi`, `/sys/block`,
+`/sys/class/dmi/id`, `/sys/kernel`, `/sys/power`, `/sys/fs/pstore`).
+Podman additionally masks `/proc/cmdline`, `/proc/cpuinfo`, and `/proc/meminfo`
 (`--security-opt mask=…`) — paths Docker cannot mask.
 
 With `--gvisor`, the container runs under gVisor's `runsc`, a userspace kernel,
