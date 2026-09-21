@@ -301,6 +301,19 @@ if [ "$GVISOR" -eq 1 ]; then
     RUN_OPTS+=(--runtime runsc)
 fi
 
+# Pin the container to as many host CPUs as its quota implies so affinity
+# counters (nproc, Cpus_allowed, language runtimes) report the sandbox size
+# instead of the host core count. --cpus alone only sets a quota.
+CPU_INT="${CPUS_LIMIT%%.*}"
+CPU_FRAC="${CPUS_LIMIT#*.}"
+CPU_N="$CPU_INT"
+if [ "$CPU_FRAC" != "$CPUS_LIMIT" ] && [[ "$CPU_FRAC" == *[1-9]* ]]; then
+    CPU_N=$((CPU_INT + 1))
+fi
+CPUSET_CPUS="0-$((CPU_N - 1))"
+# Node 0 always exists; pinning it hides host NUMA topology (Mems_allowed).
+CPUSET_MEMS="0"
+
 MOUNT_OPTS=()
 EMPTY_TMPFS=""
 if [ "$RUNTIME_CMD" = podman ]; then
@@ -335,6 +348,8 @@ MOUNT_OPTS+=(
     --pids-limit "$PIDS_LIMIT" \
     --memory "$MEM_LIMIT" \
     --cpus "$CPUS_LIMIT" \
+    --cpuset-cpus "$CPUSET_CPUS" \
+    --cpuset-mems "$CPUSET_MEMS" \
     "${MOUNT_OPTS[@]}" \
     --workdir /workspace \
     "${NET_OPTS[@]}" \

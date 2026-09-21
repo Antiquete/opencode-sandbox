@@ -107,6 +107,10 @@ The container starts with sane resource limits: 4 GB RAM, 2 CPUs, and
 Network internals are hardened with conservative defaults in the container's
 own network namespace (unless `--docker-network host` is used).
 
+The agent is also pinned to the CPUs its quota implies, so tools that report
+core counts (`nproc`, `/proc/cpuinfo`, `Cpus_allowed`) show the sandbox size
+instead of your host's hardware.
+
 Both runtimes mask the host `/sys` fingerprint surfaces on read-only tmpfs
 (`/sys/devices`, `/sys/module`, `/sys/bus/pci|usb|scsi`, `/sys/block`,
 `/sys/class/dmi/id`, `/sys/kernel`, `/sys/power`, `/sys/fs/pstore`).
