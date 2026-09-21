@@ -181,6 +181,12 @@ if [[ ! "$MEM_LIMIT" =~ ^[1-9][0-9]{0,8}[kKmMgG]?$ ]] ||
     exit 1
 fi
 
+DNS_SERVER="${OPENCODE_DNS:-1.1.1.1}"
+if [[ ! "$DNS_SERVER" =~ ^[0-9a-fA-F:.]+$ ]]; then
+    echo "Error: OPENCODE_DNS must be a numeric IPv4 or IPv6 resolver address."
+    exit 1
+fi
+
 B=; DIM=; GRN=; YEL=; RED=; RST=
 if [ -t 0 ] && [ -t 1 ]; then
     B=$'\033[1m'; DIM=$'\033[2m'; GRN=$'\033[32m'; YEL=$'\033[33m'; RED=$'\033[31m'; RST=$'\033[0m'
@@ -246,6 +252,13 @@ CONTAINER_NAME="opencode-${PROJ_SLUG}-${PROJ_HASH}"
 if [ -n "$NETWORK" ] && ! "$RUNTIME_CMD" network inspect "$NETWORK" >/dev/null 2>&1; then
     echo "${RUNTIME_CMD} network '$NETWORK' missing - creating it..."
     "$RUNTIME_CMD" network create "$NETWORK" >/dev/null
+fi
+
+NETWORK_DRIVER=""
+NETWORK_NAME="$NETWORK"
+if [ -n "$NETWORK" ] && [ "$NETWORK" != none ]; then
+    NETWORK_DRIVER="$("$RUNTIME_CMD" network inspect --format '{{.Driver}}' "$NETWORK")"
+    NETWORK_NAME="$("$RUNTIME_CMD" network inspect --format '{{.Name}}' "$NETWORK")"
 fi
 
 NET_OPTS=()
@@ -314,6 +327,22 @@ CPUSET_CPUS="0-$((CPU_N - 1))"
 # Node 0 always exists; pinning it hides host NUMA topology (Mems_allowed).
 CPUSET_MEMS="0"
 
+LAUNCH_DIR="$(mktemp -d /tmp/opencode-launch.XXXXXXXX)"
+cleanup_launch() {
+    rm -f -- "$LAUNCH_DIR/resolv.conf" "$LAUNCH_DIR/hosts"
+    rmdir -- "$LAUNCH_DIR"
+}
+trap cleanup_launch EXIT
+RESOLVER="$DNS_SERVER"
+if [ "$RUNTIME_CMD" = docker ] && [ -n "$NETWORK" ] &&
+   [ "$NETWORK" != none ] && [ "$NETWORK_NAME" != bridge ] && [ "$NETWORK_DRIVER" != host ]; then
+    # Docker's embedded resolver preserves DNS names on user-selected networks.
+    # --dns below sets its upstream without copying the host resolv.conf.
+    RESOLVER=127.0.0.11
+fi
+printf 'nameserver %s\n' "$RESOLVER" > "$LAUNCH_DIR/resolv.conf"
+printf '127.0.0.1 localhost opencode\n::1 localhost ip6-localhost ip6-loopback\n' > "$LAUNCH_DIR/hosts"
+
 MOUNT_OPTS=()
 NONRECURSIVE=bind-recursive=disabled
 EMPTY_TMPFS=""
@@ -339,6 +368,8 @@ MOUNT_OPTS+=(
     --mount "type=volume,dst=/workspace/.opencode-sandbox"
     --mount "type=bind,src=$STATE_DIR,dst=/root/.local/share/opencode,$NONRECURSIVE,bind-propagation=rprivate"
     --mount "type=bind,src=$CONFIG_DIR,dst=/root/.config/opencode,$NONRECURSIVE,bind-propagation=rprivate"
+    --mount "type=bind,src=$LAUNCH_DIR/resolv.conf,dst=/etc/resolv.conf,readonly"
+    --mount "type=bind,src=$LAUNCH_DIR/hosts,dst=/etc/hosts,readonly"
 )
 
 "$RUNTIME_CMD" run --init --rm \
@@ -346,6 +377,8 @@ MOUNT_OPTS+=(
     "${PULL_OPTS[@]}" \
     "${RUN_OPTS[@]}" \
     --name "$CONTAINER_NAME" \
+    --hostname opencode \
+    --dns "$DNS_SERVER" \
     "${SEC_OPTS[@]}" \
     --pids-limit "$PIDS_LIMIT" \
     --memory "$MEM_LIMIT" \

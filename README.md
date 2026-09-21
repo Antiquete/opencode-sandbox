@@ -112,6 +112,11 @@ core counts (`nproc`, `/proc/cpuinfo`, `Cpus_allowed`) show the sandbox size
 instead of your host's hardware. Project and config are mounted non-recursively
 with private propagation, so nested mounts on your host don't leak in.
 
+The container uses a fixed hostname (`opencode`) and fresh resolver/hosts files
+instead of the host's, so nothing identifies your machine. DNS defaults to
+`1.1.1.1`; override with `OPENCODE_DNS` (e.g. `OPENCODE_DNS=9.9.9.9
+opencode-sandbox`).
+
 Both runtimes mask the host `/sys` fingerprint surfaces on read-only tmpfs
 (`/sys/devices`, `/sys/module`, `/sys/bus/pci|usb|scsi`, `/sys/block`,
 `/sys/class/dmi/id`, `/sys/kernel`, `/sys/power`, `/sys/fs/pstore`).
