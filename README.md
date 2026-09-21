@@ -119,6 +119,10 @@ instead of the host's, so nothing identifies your machine. DNS defaults to
 `1.1.1.1`; override with `OPENCODE_DNS` (e.g. `OPENCODE_DNS=9.9.9.9
 opencode-sandbox`).
 
+Before launching, the shared directories are checked for Unix sockets, device
+nodes, FIFOs, and hard-linked files (they would expose host IPC or host files
+through the mounts); the sandbox refuses to start if any are found.
+
 Both runtimes mask the host `/sys` fingerprint surfaces on read-only tmpfs
 (`/sys/devices`, `/sys/module`, `/sys/bus/pci|usb|scsi`, `/sys/block`,
 `/sys/class/dmi/id`, `/sys/kernel`, `/sys/power`, `/sys/fs/pstore`).

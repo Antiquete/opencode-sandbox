@@ -176,6 +176,21 @@ done
 
 mkdir -p "$CONFIG_DIR"
 
+# A bind mount also grants access to Unix sockets and hard-linked host files.
+# Read-only mounts do not prevent connecting to a host Unix socket.
+for scan_dir in "$PROJECT" "$STATE_DIR" "$CONFIG_DIR"; do
+    if ! UNSAFE_ENTRY="$(find "$scan_dir" -xdev \( -type s -o -type b -o -type c -o -type p -o \( -type f -links +1 \) \) -print -quit)"; then
+        echo "Error: unable to check shared files for host IPC or hard links."
+        exit 1
+    fi
+    if [ -n "$UNSAFE_ENTRY" ]; then
+        echo "Error: shared directories must not contain sockets, devices, FIFOs, or hard-linked files:"
+        printf '  %s\n' "$UNSAFE_ENTRY"
+        echo "Use ordinary independent files in the sandbox project/config."
+        exit 1
+    fi
+done
+
 MEM_LIMIT="${OPENCODE_MEMORY:-4g}"
 CPUS_LIMIT="${OPENCODE_CPUS:-2}"
 PIDS_LIMIT="${OPENCODE_PIDS:-1024}"
