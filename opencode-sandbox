@@ -463,6 +463,7 @@ MOUNT_OPTS+=(
     --pids-limit "$PIDS_LIMIT" \
     --memory "$MEM_LIMIT" \
     --memory-swap "$MEM_LIMIT" \
+    --ulimit core=0 \
     --cpus "$CPUS_LIMIT" \
     --cpuset-cpus "$CPUSET_CPUS" \
     --cpuset-mems "$CPUSET_MEMS" \

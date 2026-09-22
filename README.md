@@ -120,7 +120,8 @@ with private propagation, so nested mounts on your host don't leak in.
 The container uses a fixed hostname (`opencode`) and fresh resolver/hosts files
 instead of the host's, so nothing identifies your machine. DNS defaults to
 `1.1.1.1`; override with `OPENCODE_DNS` (e.g. `OPENCODE_DNS=9.9.9.9
-opencode-sandbox`). It also gets its own private IPC and cgroup namespaces.
+opencode-sandbox`). It also gets its own private IPC and cgroup namespaces, and
+core dumps are disabled (`--ulimit core=0`).
 
 Before launching, the shared directories are checked for Unix sockets, device
 nodes, FIFOs, and hard-linked files (they would expose host IPC or host files
