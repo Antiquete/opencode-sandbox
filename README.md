@@ -136,7 +136,9 @@ never namespaces, mounting modes, or inline options. `host` and `none` remain
 selectable; which network the agent can see is the user's grant.
 
 The launcher must be installed outside the sandboxed project directory, so the
-agent can't replace the trusted launcher from inside.
+agent can't replace the trusted launcher from inside. The `.opencode-sandbox`
+state directory must be a real directory — the launcher refuses a symlinked
+store, so the project's session data can't be silently redirected elsewhere.
 
 Both scripts run with a restrictive `umask 077`, so everything they create — the
 fresh resolver/hosts stubs and the private `.opencode-sandbox` store — is never

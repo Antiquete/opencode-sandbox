@@ -97,6 +97,10 @@ if [ "$HOME_DIR" = "$PROJECT" ] || { case "$HOME_DIR" in "$PROJECT"/*) true;; *)
     exit 1
 fi
 
+if [ -L "$STATE_DIR" ]; then
+    echo "Error: .opencode-sandbox must be a real directory, not a symlink."
+    exit 1
+fi
 if [ ! -d "$PROJECT/.opencode-sandbox" ]; then
     echo "Error: this directory has not been initialized for isolated OpenCode."
     echo
