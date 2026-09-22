@@ -71,6 +71,20 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
+case "$GVISOR" in
+    0|1) ;;
+    *) echo "Error: OPENCODE_GVISOR must be 0 or 1."; exit 1 ;;
+esac
+case "$IMAGE" in
+    ''|-*) echo "Error: OPENCODE_IMAGE must be an image reference, not a runtime option."; exit 1 ;;
+esac
+# Names only: never namespace-sharing modes or inline network options.
+# 'host' and 'none' stay selectable — network choice is the user's grant.
+if [ -n "$NETWORK" ] && [[ ! "$NETWORK" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
+    echo "Error: network must be a Docker network name or 'none'."
+    exit 1
+fi
+
 if [ "$PROJECT" = "/" ]; then
     echo "Error: refusing to run OpenCode at the filesystem root."
     exit 1

@@ -129,6 +129,12 @@ and project directories must not overlap, and paths containing commas, quotes,
 or newlines are rejected (they would break the container mounts). To share a
 config location other than `~/.config/opencode`, set `OPENCODE_CONFIG_DIR`.
 
+Sandbox options are validated before anything runs: `OPENCODE_GVISOR` must be
+`0` or `1`, the image must be a real reference (anything starting with `-` is
+rejected as a runtime option), and network names must be plain identifiers —
+never namespaces, mounting modes, or inline options. `host` and `none` remain
+selectable; which network the agent can see is the user's grant.
+
 The launcher must be installed outside the sandboxed project directory, so the
 agent can't replace the trusted launcher from inside.
 
