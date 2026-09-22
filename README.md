@@ -104,6 +104,12 @@ The container is launched with:
 - Shared config at `~/.config/opencode` (read-only by default; opt into
   read/write with `--config-rw`)
 
+Under a rootful daemon the container runs as the host user (its UID/GID are
+mapped with `--user`, and `/root` is masked with a writable tmpfs), so session
+files written into the state store stay owned by you and need no `sudo` to
+clean up. With a rootless daemon the unprivileged UID is already mapped, so no
+extra wrapping is done.
+
 The container starts with sane resource limits: 4 GB RAM, 2 CPUs, and
 1024 processes. To override, set `OPENCODE_MEMORY`, `OPENCODE_CPUS`, or
 `OPENCODE_PIDS` (e.g. `OPENCODE_MEMORY=8g opencode-sandbox`).
