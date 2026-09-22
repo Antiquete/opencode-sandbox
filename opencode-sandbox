@@ -457,6 +457,8 @@ MOUNT_OPTS+=(
     --name "$CONTAINER_NAME" \
     --hostname opencode \
     --dns "$DNS_SERVER" \
+    --ipc private \
+    --cgroupns private \
     "${SEC_OPTS[@]}" \
     --pids-limit "$PIDS_LIMIT" \
     --memory "$MEM_LIMIT" \
