@@ -168,7 +168,9 @@ if [ "$GVISOR" -eq 1 ]; then
         echo "Error: cannot reach the docker daemon (required for --gvisor)."
         exit 1
     fi
-    if ! docker info 2>/dev/null | grep -q runsc; then
+    # Match the daemon's registered runtimes by exact name, so a
+    # similarly-named runtime is never mistaken for runsc.
+    if ! docker info --format '{{range $name, $runtime := .Runtimes}}{{println $name}}{{end}}' 2>/dev/null | grep -Fxq runsc; then
         echo "Error: --gvisor needs the 'runsc' runtime, but it isn't registered with Docker."
         echo "Install gVisor and add to /etc/docker/daemon.json, then restart Docker:"
         echo "  { \"runtimes\": { \"runsc\": { \"path\": \"/usr/local/bin/runsc\" } } }"

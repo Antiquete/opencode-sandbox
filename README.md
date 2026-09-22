@@ -150,7 +150,10 @@ Podman additionally masks `/proc/cmdline`, `/proc/cpuinfo`, and `/proc/meminfo`
 
 With `--gvisor`, the container runs under gVisor's `runsc`, a userspace kernel,
 so the host `/proc` and `/sys` surfaces are emulated instead of exposed — even
-paths Docker cannot mask. Requires the `runsc` runtime registered with Docker.
+paths Docker cannot mask. Requires the `runsc` runtime registered with Docker;
+the check matches the registered runtime name exactly (never a context that
+contains a look-alike name), because a container running under the wrong
+runtime would violate the sandbox contract.
 
 ## Security Matrix — Containerizer Comparison
 
