@@ -62,7 +62,8 @@ opencode-sandbox --continue
 ```
 
 - The `.opencode-sandbox/` folder in your project holds the sandbox session data.
-- Everything after the script name is passed through to OpenCode.
+- Everything after the script name is passed through to OpenCode. Use `--` to
+  forward even arguments that look like sandbox flags.
 
 ## Options
 

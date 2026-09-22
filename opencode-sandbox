@@ -59,6 +59,11 @@ while [ "$#" -gt 0 ]; do
             CONFIG_RW=1
             shift
             ;;
+        --)
+            shift
+            OPENCODE_ARGS+=("$@")
+            break
+            ;;
         *)
             OPENCODE_ARGS+=("$1")
             shift
