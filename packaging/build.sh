@@ -8,15 +8,15 @@ cd "$ROOT"
 
 REPO_URL="${REPO_URL:-$(git -C "$ROOT" remote get-url origin 2>/dev/null || true)}"
 if [ -z "$REPO_URL" ]; then
-    echo "Error: no git remote 'origin' (set REPO_URL to override)." >&2
-    exit 1
+	echo "Error: no git remote 'origin' (set REPO_URL to override)." >&2
+	exit 1
 fi
 HOMEPAGE="${REPO_URL%.git}"
 case "$HOMEPAGE" in
-    git@*)
-        HOMEPAGE="${HOMEPAGE#git@}"
-        HOMEPAGE="https://${HOMEPAGE/:/\//}"
-        ;;
+git@*)
+	HOMEPAGE="${HOMEPAGE#git@}"
+	HOMEPAGE="https://${HOMEPAGE/:/\//}"
+	;;
 esac
 GIT_NAME="$(git -C "$ROOT" config user.name 2>/dev/null || true)"
 GIT_EMAIL="$(git -C "$ROOT" config user.email 2>/dev/null || true)"
@@ -40,7 +40,7 @@ echo "== .deb =="
 DEB=/tmp/deb
 mkdir -p "$DEB/DEBIAN" "$DEB/usr/bin"
 cp "$PKG/usr/bin"/* "$DEB/usr/bin/"
-cat > "$DEB/DEBIAN/control" <<EOF
+cat >"$DEB/DEBIAN/control" <<EOF
 Package: opencode-sandbox
 Version: $VER
 Section: utils
@@ -58,7 +58,7 @@ echo "== .rpm =="
 RPM=/tmp/rpmbuild
 mkdir -p "$RPM/SPECS" "$RPM/SOURCES"
 cp opencode-sandbox opencode-project-init "$RPM/SOURCES/"
-cat > "$RPM/SPECS/opencode-sandbox.spec" <<EOF
+cat >"$RPM/SPECS/opencode-sandbox.spec" <<EOF
 Name: opencode-sandbox
 Version: $VER
 Release: 1
@@ -90,7 +90,7 @@ echo "== .pkg.tar.zst (Arch) =="
 ARC=/tmp/arch
 mkdir -p "$ARC/usr/bin"
 cp "$PKG/usr/bin"/* "$ARC/usr/bin/"
-cat > "$ARC/.PKGINFO" <<EOF
+cat >"$ARC/.PKGINFO" <<EOF
 pkgname = opencode-sandbox
 pkgver = $VER
 pkgdesc = Run OpenCode inside an isolated Docker sandbox
@@ -104,13 +104,13 @@ depend = bash
 depend = docker
 EOF
 (
-    cd "$ARC"
-    bsdtar -cf .MTREE --format=mtree --options='!all,use-set,type,uid,gid,mode,time,size,md5,sha256' .PKGINFO usr
-    tar --zstd -cf "$DIST/opencode-sandbox-${VER}-1-any.pkg.tar.zst" .PKGINFO .MTREE usr
+	cd "$ARC"
+	bsdtar -cf .MTREE --format=mtree --options='!all,use-set,type,uid,gid,mode,time,size,md5,sha256' .PKGINFO usr
+	tar --zstd -cf "$DIST/opencode-sandbox-${VER}-1-any.pkg.tar.zst" .PKGINFO .MTREE usr
 )
 
 echo "== ebuild (Gentoo) =="
-cat > "$DIST/opencode-sandbox-${VER}.ebuild" <<EOF
+cat >"$DIST/opencode-sandbox-${VER}.ebuild" <<EOF
 EAPI=8
 
 DESCRIPTION="Run OpenCode inside an isolated Docker sandbox"

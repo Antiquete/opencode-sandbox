@@ -18,180 +18,186 @@ PULL_ALWAYS=1
 CONFIG_RW=0
 OPENCODE_ARGS=()
 while [ "$#" -gt 0 ]; do
-    case "$1" in
-        --offline)
-            PULL_ALWAYS=0
-            shift
-            ;;
-        --no-network)
-            NETWORK=none
-            shift
-            ;;
-        --docker-network)
-            if [ "$#" -lt 2 ]; then
-                echo "Error: --docker-network requires a value."
-                exit 1
-            fi
-            NETWORK="$2"
-            shift 2
-            ;;
-        --docker-network=*)
-            NETWORK="${1#*=}"
-            shift
-            ;;
-        --runtime)
-            if [ "$#" -lt 2 ]; then
-                echo "Error: --runtime requires a value."
-                exit 1
-            fi
-            RUNTIME="$2"
-            shift 2
-            ;;
-        --runtime=*)
-            RUNTIME="${1#*=}"
-            shift
-            ;;
-        --gvisor)
-            GVISOR=1
-            shift
-            ;;
-        --config-rw)
-            CONFIG_RW=1
-            shift
-            ;;
-        --)
-            shift
-            OPENCODE_ARGS+=("$@")
-            break
-            ;;
-        *)
-            OPENCODE_ARGS+=("$1")
-            shift
-            ;;
-    esac
+	case "$1" in
+	--offline)
+		PULL_ALWAYS=0
+		shift
+		;;
+	--no-network)
+		NETWORK=none
+		shift
+		;;
+	--docker-network)
+		if [ "$#" -lt 2 ]; then
+			echo "Error: --docker-network requires a value."
+			exit 1
+		fi
+		NETWORK="$2"
+		shift 2
+		;;
+	--docker-network=*)
+		NETWORK="${1#*=}"
+		shift
+		;;
+	--runtime)
+		if [ "$#" -lt 2 ]; then
+			echo "Error: --runtime requires a value."
+			exit 1
+		fi
+		RUNTIME="$2"
+		shift 2
+		;;
+	--runtime=*)
+		RUNTIME="${1#*=}"
+		shift
+		;;
+	--gvisor)
+		GVISOR=1
+		shift
+		;;
+	--config-rw)
+		CONFIG_RW=1
+		shift
+		;;
+	--)
+		shift
+		OPENCODE_ARGS+=("$@")
+		break
+		;;
+	*)
+		OPENCODE_ARGS+=("$1")
+		shift
+		;;
+	esac
 done
 
 case "$GVISOR" in
-    0|1) ;;
-    *) echo "Error: OPENCODE_GVISOR must be 0 or 1."; exit 1 ;;
+0 | 1) ;;
+*)
+	echo "Error: OPENCODE_GVISOR must be 0 or 1."
+	exit 1
+	;;
 esac
 case "$IMAGE" in
-    ''|-*) echo "Error: OPENCODE_IMAGE must be an image reference, not a runtime option."; exit 1 ;;
+'' | -*)
+	echo "Error: OPENCODE_IMAGE must be an image reference, not a runtime option."
+	exit 1
+	;;
 esac
 # Names only: never namespace-sharing modes or inline network options.
 # 'host' and 'none' stay selectable — network choice is the user's grant.
 if [ -n "$NETWORK" ] && [[ ! "$NETWORK" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
-    echo "Error: network must be a Docker network name or 'none'."
-    exit 1
+	echo "Error: network must be a Docker network name or 'none'."
+	exit 1
 fi
 
 if [ "$PROJECT" = "/" ]; then
-    echo "Error: refusing to run OpenCode at the filesystem root."
-    exit 1
+	echo "Error: refusing to run OpenCode at the filesystem root."
+	exit 1
 fi
-if [ "$HOME_DIR" = "$PROJECT" ] || { case "$HOME_DIR" in "$PROJECT"/*) true;; *) false;; esac; }; then
-    echo "Error: refusing to run OpenCode here:"
-    echo "  $PROJECT"
-    echo "It contains your home directory ($HOME_DIR), which would be exposed"
-    echo "to the sandbox. Run it inside a more specific project directory."
-    exit 1
+if [ "$HOME_DIR" = "$PROJECT" ] || { case "$HOME_DIR" in "$PROJECT"/*) true ;; *) false ;; esac } then
+	echo "Error: refusing to run OpenCode here:"
+	echo "  $PROJECT"
+	echo "It contains your home directory ($HOME_DIR), which would be exposed"
+	echo "to the sandbox. Run it inside a more specific project directory."
+	exit 1
 fi
 
 if [ -L "$STATE_DIR" ]; then
-    echo "Error: .opencode-sandbox must be a real directory, not a symlink."
-    exit 1
+	echo "Error: .opencode-sandbox must be a real directory, not a symlink."
+	exit 1
 fi
 if [ ! -d "$PROJECT/.opencode-sandbox" ]; then
-    echo "Error: this directory has not been initialized for isolated OpenCode."
-    echo
-    echo "Run:"
-    echo "  opencode-project-init"
-    exit 1
+	echo "Error: this directory has not been initialized for isolated OpenCode."
+	echo
+	echo "Run:"
+	echo "  opencode-project-init"
+	exit 1
 fi
 
 RESOLVED_STATE="$(cd -P "$STATE_DIR" 2>/dev/null && pwd || true)"
 if [ -z "$RESOLVED_STATE" ]; then
-    echo "Error: state directory is missing or unreadable:"
-    echo "  $STATE_DIR"
-    exit 1
+	echo "Error: state directory is missing or unreadable:"
+	echo "  $STATE_DIR"
+	exit 1
 fi
 case "$RESOLVED_STATE" in
-    "$PROJECT"/*)
-        ;;
-    *)
-        echo "Error: state directory resolves outside the project."
-        echo "  Logical:   $STATE_DIR"
-        echo "  Resolved:  $RESOLVED_STATE"
-        echo "Remove the symlink so it stays inside the project."
-        exit 1
-        ;;
+"$PROJECT"/*)
+	;;
+*)
+	echo "Error: state directory resolves outside the project."
+	echo "  Logical:   $STATE_DIR"
+	echo "  Resolved:  $RESOLVED_STATE"
+	echo "Remove the symlink so it stays inside the project."
+	exit 1
+	;;
 esac
 STATE_DIR="$RESOLVED_STATE"
 
 if [ "${BASH_VERSION:-}" = "" ]; then
-    echo "Error: this script requires bash (shebang: #!/usr/bin/env bash)."
-    exit 1
+	echo "Error: this script requires bash (shebang: #!/usr/bin/env bash)."
+	exit 1
 fi
 
 RUNTIME_CMD=""
 case "$RUNTIME" in
-    docker)
-        RUNTIME_CMD=docker
-        ;;
-    podman)
-        RUNTIME_CMD=podman
-        ;;
-    auto)
-        if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-            RUNTIME_CMD=docker
-        elif command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1; then
-            RUNTIME_CMD=podman
-        else
-            echo "Error: no container runtime found."
-            if [ "$GVISOR" -eq 1 ]; then
-                echo "Install Docker (with the daemon running) — gVisor's runsc is a Docker runtime."
-            else
-                echo "Install Docker (with the daemon running) or Podman and make sure it is in your PATH."
-            fi
-            exit 1
-        fi
-        ;;
-    *)
-        echo "Error: unknown runtime '$RUNTIME' (expected 'docker', 'podman', or 'auto')."
-        exit 1
-        ;;
+docker)
+	RUNTIME_CMD=docker
+	;;
+podman)
+	RUNTIME_CMD=podman
+	;;
+auto)
+	if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+		RUNTIME_CMD=docker
+	elif command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1; then
+		RUNTIME_CMD=podman
+	else
+		echo "Error: no container runtime found."
+		if [ "$GVISOR" -eq 1 ]; then
+			echo "Install Docker (with the daemon running) — gVisor's runsc is a Docker runtime."
+		else
+			echo "Install Docker (with the daemon running) or Podman and make sure it is in your PATH."
+		fi
+		exit 1
+	fi
+	;;
+*)
+	echo "Error: unknown runtime '$RUNTIME' (expected 'docker', 'podman', or 'auto')."
+	exit 1
+	;;
 esac
 
 if [ "$GVISOR" -eq 1 ]; then
-    if [ "$RUNTIME_CMD" != docker ]; then
-        echo "Error: --gvisor requires Docker (runsc is registered as a Docker runtime)."
-        echo "Install gVisor and add runsc to /etc/docker/daemon.json, then run without --runtime podman."
-        exit 1
-    fi
-    if ! docker info >/dev/null 2>&1; then
-        echo "Error: cannot reach the docker daemon (required for --gvisor)."
-        exit 1
-    fi
-    # Match the daemon's registered runtimes by exact name, so a
-    # similarly-named runtime is never mistaken for runsc.
-    if ! docker info --format '{{range $name, $runtime := .Runtimes}}{{println $name}}{{end}}' 2>/dev/null | grep -Fxq runsc; then
-        echo "Error: --gvisor needs the 'runsc' runtime, but it isn't registered with Docker."
-        echo "Install gVisor and add to /etc/docker/daemon.json, then restart Docker:"
-        echo "  { \"runtimes\": { \"runsc\": { \"path\": \"/usr/local/bin/runsc\" } } }"
-        exit 1
-    fi
+	if [ "$RUNTIME_CMD" != docker ]; then
+		echo "Error: --gvisor requires Docker (runsc is registered as a Docker runtime)."
+		echo "Install gVisor and add runsc to /etc/docker/daemon.json, then run without --runtime podman."
+		exit 1
+	fi
+	if ! docker info >/dev/null 2>&1; then
+		echo "Error: cannot reach the docker daemon (required for --gvisor)."
+		exit 1
+	fi
+	# Match the daemon's registered runtimes by exact name, so a
+	# similarly-named runtime is never mistaken for runsc.
+	if ! docker info --format '{{range $name, $runtime := .Runtimes}}{{println $name}}{{end}}' 2>/dev/null | grep -Fxq runsc; then
+		echo "Error: --gvisor needs the 'runsc' runtime, but it isn't registered with Docker."
+		echo "Install gVisor and add to /etc/docker/daemon.json, then restart Docker:"
+		echo "  { \"runtimes\": { \"runsc\": { \"path\": \"/usr/local/bin/runsc\" } } }"
+		exit 1
+	fi
 fi
 
 if ! command -v "$RUNTIME_CMD" >/dev/null 2>&1; then
-    echo "Error: the '$RUNTIME_CMD' CLI was not found."
-    echo "Install it and make sure it is in your PATH."
-    exit 1
+	echo "Error: the '$RUNTIME_CMD' CLI was not found."
+	echo "Install it and make sure it is in your PATH."
+	exit 1
 fi
 
 if ! "$RUNTIME_CMD" info >/dev/null 2>&1; then
-    echo "Error: cannot reach the $RUNTIME_CMD daemon."
-    echo "Is it running? Check with: $RUNTIME_CMD info"
-    exit 1
+	echo "Error: cannot reach the $RUNTIME_CMD daemon."
+	echo "Is it running? Check with: $RUNTIME_CMD info"
+	exit 1
 fi
 
 # Under a rootful daemon the container runs as root, so state written to the
@@ -200,93 +206,112 @@ fi
 CONTAINER_UID=0
 CONTAINER_GID=0
 if [ "$RUNTIME_CMD" = docker ]; then
-    ROOTLESS="$(docker info --format '{{json .SecurityOptions}}')"
-    case "$ROOTLESS" in
-        *'"name=rootless"'*) ;;
-        *) CONTAINER_UID="$(id -u)"; CONTAINER_GID="$(id -g)" ;;
-    esac
+	ROOTLESS="$(docker info --format '{{json .SecurityOptions}}')"
+	case "$ROOTLESS" in
+	*'"name=rootless"'*) ;;
+	*)
+		CONTAINER_UID="$(id -u)"
+		CONTAINER_GID="$(id -g)"
+		;;
+	esac
 else
-    case "$("$RUNTIME_CMD" info --format '{{.Host.Security.Rootless}}')" in
-        true) ;;
-        *) CONTAINER_UID="$(id -u)"; CONTAINER_GID="$(id -g)" ;;
-    esac
+	case "$("$RUNTIME_CMD" info --format '{{.Host.Security.Rootless}}')" in
+	true) ;;
+	*)
+		CONTAINER_UID="$(id -u)"
+		CONTAINER_GID="$(id -g)"
+		;;
+	esac
 fi
 USER_OPTS=()
 if [ "$CONTAINER_UID" -ne 0 ]; then
-    USER_OPTS=(--user "$CONTAINER_UID:$CONTAINER_GID" --env HOME=/root)
+	USER_OPTS=(--user "$CONTAINER_UID:$CONTAINER_GID" --env HOME=/root)
 fi
 
 # A writable project must not be able to replace the trusted launcher for this
 # or a subsequent session. Keep an independent installation elsewhere.
 if [ "$SCRIPT_DIR" = "$PROJECT" ] || [[ "$SCRIPT_DIR" == "$PROJECT/"* ]]; then
-    echo "Error: the launcher installation must be outside the writable project."
-    exit 1
+	echo "Error: the launcher installation must be outside the writable project."
+	exit 1
 fi
 
 case "$CONFIG_DIR" in
-    /*) ;;
-    *) echo "Error: OPENCODE_CONFIG_DIR must be an absolute path."; exit 1 ;;
+/*) ;;
+*)
+	echo "Error: OPENCODE_CONFIG_DIR must be an absolute path."
+	exit 1
+	;;
 esac
 mkdir -p -- "$CONFIG_DIR"
 CONFIG_DIR="$(cd -P -- "$CONFIG_DIR" && pwd)"
 # A read-only config bind is ineffective if the same data is also reachable
 # through the writable workspace bind. Ancestors expose project data as config.
 if [ "$CONFIG_DIR" = "$PROJECT" ] || [[ "$CONFIG_DIR" == "$PROJECT/"* ]] || [[ "$PROJECT" == "$CONFIG_DIR/"* ]] || [ "$CONFIG_DIR" = / ]; then
-    echo "Error: shared config and project directories must not overlap."
-    exit 1
+	echo "Error: shared config and project directories must not overlap."
+	exit 1
 fi
 
 for path in "$PROJECT" "$STATE_DIR" "$CONFIG_DIR"; do
-    case "$path" in
-        *,*|*\"*|*$'\n'*|*$'\r'*)
-            echo "Error: container mount paths cannot contain commas, quotes, or newlines:"
-            echo "  $path"
-            echo "Move the project or config so no path component contains a comma."
-            exit 1
-            ;;
-    esac
+	case "$path" in
+	*,* | *\"* | *$'\n'* | *$'\r'*)
+		echo "Error: container mount paths cannot contain commas, quotes, or newlines:"
+		echo "  $path"
+		echo "Move the project or config so no path component contains a comma."
+		exit 1
+		;;
+	esac
 done
 
 # A bind mount also grants access to Unix sockets and hard-linked host files.
 # Read-only mounts do not prevent connecting to a host Unix socket.
 for scan_dir in "$PROJECT" "$STATE_DIR" "$CONFIG_DIR"; do
-    if ! UNSAFE_ENTRY="$(find "$scan_dir" -xdev \( -type s -o -type b -o -type c -o -type p -o \( -type f -links +1 \) \) -print -quit)"; then
-        echo "Error: unable to check shared files for host IPC or hard links."
-        exit 1
-    fi
-    if [ -n "$UNSAFE_ENTRY" ]; then
-        echo "Error: shared directories must not contain sockets, devices, FIFOs, or hard-linked files:"
-        printf '  %s\n' "$UNSAFE_ENTRY"
-        echo "Use ordinary independent files in the sandbox project/config."
-        exit 1
-    fi
+	if ! UNSAFE_ENTRY="$(find "$scan_dir" -xdev \( -type s -o -type b -o -type c -o -type p -o \( -type f -links +1 \) \) -print -quit)"; then
+		echo "Error: unable to check shared files for host IPC or hard links."
+		exit 1
+	fi
+	if [ -n "$UNSAFE_ENTRY" ]; then
+		echo "Error: shared directories must not contain sockets, devices, FIFOs, or hard-linked files:"
+		printf '  %s\n' "$UNSAFE_ENTRY"
+		echo "Use ordinary independent files in the sandbox project/config."
+		exit 1
+	fi
 done
 
 MEM_LIMIT="${OPENCODE_MEMORY:-4g}"
 CPUS_LIMIT="${OPENCODE_CPUS:-2}"
 PIDS_LIMIT="${OPENCODE_PIDS:-1024}"
 if [[ ! "$MEM_LIMIT" =~ ^[1-9][0-9]{0,8}[kKmMgG]?$ ]] ||
-   [[ ! "$CPUS_LIMIT" =~ ^[1-9][0-9]*([.][0-9]+)?$ ]] ||
-   [[ ! "$PIDS_LIMIT" =~ ^[1-9][0-9]*$ ]]; then
-    echo "Error: OPENCODE_MEMORY, OPENCODE_CPUS, and OPENCODE_PIDS must be positive limits."
-    exit 1
+	[[ ! "$CPUS_LIMIT" =~ ^[1-9][0-9]*([.][0-9]+)?$ ]] ||
+	[[ ! "$PIDS_LIMIT" =~ ^[1-9][0-9]*$ ]]; then
+	echo "Error: OPENCODE_MEMORY, OPENCODE_CPUS, and OPENCODE_PIDS must be positive limits."
+	exit 1
 fi
 
 DNS_SERVER="${OPENCODE_DNS:-1.1.1.1}"
 if [[ ! "$DNS_SERVER" =~ ^[0-9a-fA-F:.]+$ ]]; then
-    echo "Error: OPENCODE_DNS must be a numeric IPv4 or IPv6 resolver address."
-    exit 1
+	echo "Error: OPENCODE_DNS must be a numeric IPv4 or IPv6 resolver address."
+	exit 1
 fi
 
-B=; DIM=; GRN=; YEL=; RED=; RST=
+B=
+DIM=
+GRN=
+YEL=
+RED=
+RST=
 if [ -t 0 ] && [ -t 1 ]; then
-    B=$'\033[1m'; DIM=$'\033[2m'; GRN=$'\033[32m'; YEL=$'\033[33m'; RED=$'\033[31m'; RST=$'\033[0m'
+	B=$'\033[1m'
+	DIM=$'\033[2m'
+	GRN=$'\033[32m'
+	YEL=$'\033[33m'
+	RED=$'\033[31m'
+	RST=$'\033[0m'
 fi
 
 NET_LABEL="${NETWORK:-${RUNTIME_CMD} default network}"
 ARG_LABEL="(none)"
 if [ "${#OPENCODE_ARGS[@]}" -gt 0 ]; then
-    ARG_LABEL="${OPENCODE_ARGS[*]}"
+	ARG_LABEL="${OPENCODE_ARGS[*]}"
 fi
 PULL_LABEL="always"
 [ "$PULL_ALWAYS" -eq 0 ] && PULL_LABEL="never (--offline)"
@@ -312,9 +337,9 @@ echo
 printf '  %-17s %s\n' "${GRN}read/write${RST}" "everything in $PROJECT"
 printf '  %-17s %s\n' "${YEL}persistent${RST}" "$STATE_DIR"
 if [ "$CONFIG_RW" -eq 1 ]; then
-    printf '  %-17s %s (read/write)\n' "${YEL}config${RST}" "$CONFIG_DIR"
+	printf '  %-17s %s (read/write)\n' "${YEL}config${RST}" "$CONFIG_DIR"
 else
-    printf '  %-17s %s (read-only)\n' "${YEL}config${RST}" "$CONFIG_DIR"
+	printf '  %-17s %s (read-only)\n' "${YEL}config${RST}" "$CONFIG_DIR"
 fi
 echo
 printf '  %-17s %s\n' "${RED}blocked${RST}" "other projects, your home dir, ~/.ssh, Docker socket"
@@ -323,90 +348,90 @@ echo "  ${DIM}Limits: ${MEM_LIMIT} RAM | ${CPUS_LIMIT} CPUs | ${PIDS_LIMIT} proc
 echo
 printf "Continue? [y/N]: "
 if ! read -r CONFIRM; then
-    echo
-    echo "Cancelled."
-    exit 0
+	echo
+	echo "Cancelled."
+	exit 0
 fi
 
 case "$CONFIRM" in
-    y|Y|yes|Yes|YES)
-        ;;
-    *)
-        echo "Cancelled."
-        exit 0
-        ;;
+y | Y | yes | Yes | YES)
+	;;
+*)
+	echo "Cancelled."
+	exit 0
+	;;
 esac
 
-PROJ_SLUG="$(basename "$PROJECT" \
-    | tr -cs '[:alnum:]' '-' \
-    | sed 's/^-//;s/-$//' \
-    | cut -c1-40)"
+PROJ_SLUG="$(basename "$PROJECT" |
+	tr -cs '[:alnum:]' '-' |
+	sed 's/^-//;s/-$//' |
+	cut -c1-40)"
 PROJ_HASH="$(printf '%s' "$PROJECT" | cksum | cut -d' ' -f1)"
 CONTAINER_NAME="opencode-${PROJ_SLUG}-${PROJ_HASH}"
 
 if [ -n "$NETWORK" ] && [ "$NETWORK" != none ] && ! "$RUNTIME_CMD" network inspect "$NETWORK" >/dev/null 2>&1; then
-    echo "${RUNTIME_CMD} network '$NETWORK' missing - creating it..."
-    "$RUNTIME_CMD" network create "$NETWORK" >/dev/null
+	echo "${RUNTIME_CMD} network '$NETWORK' missing - creating it..."
+	"$RUNTIME_CMD" network create "$NETWORK" >/dev/null
 fi
 
 NETWORK_DRIVER=""
 NETWORK_NAME="$NETWORK"
 if [ -n "$NETWORK" ] && [ "$NETWORK" != none ]; then
-    NETWORK_DRIVER="$("$RUNTIME_CMD" network inspect --format '{{.Driver}}' "$NETWORK")"
-    NETWORK_NAME="$("$RUNTIME_CMD" network inspect --format '{{.Name}}' "$NETWORK")"
+	NETWORK_DRIVER="$("$RUNTIME_CMD" network inspect --format '{{.Driver}}' "$NETWORK")"
+	NETWORK_NAME="$("$RUNTIME_CMD" network inspect --format '{{.Name}}' "$NETWORK")"
 fi
 
 NET_OPTS=()
 if [ -n "$NETWORK" ]; then
-    NET_OPTS=(--network "$NETWORK")
+	NET_OPTS=(--network "$NETWORK")
 fi
 
 TTY_OPTS=(-i)
 if [ -t 0 ] && [ -t 1 ]; then
-    TTY_OPTS+=(-t)
+	TTY_OPTS+=(-t)
 fi
 
 PULL_OPTS=(--pull always)
 if [ "$PULL_ALWAYS" -eq 0 ]; then
-    PULL_OPTS=(--pull never)
+	PULL_OPTS=(--pull never)
 fi
 
 if [ "$PULL_ALWAYS" -eq 0 ] && ! "$RUNTIME_CMD" image inspect "$IMAGE" >/dev/null 2>&1; then
-    echo "Error: image '$IMAGE' is not present locally, but --offline skips pulling."
-    echo "Run once online to pull it, or drop --offline so it can be fetched."
-    exit 1
+	echo "Error: image '$IMAGE' is not present locally, but --offline skips pulling."
+	echo "Run once online to pull it, or drop --offline so it can be fetched."
+	exit 1
 fi
 
 if [ "$RUNTIME_CMD" = "podman" ]; then
-    SEC_OPTS=(
-        --cap-drop ALL
-        --security-opt no-new-privileges
-    )
-    MASK_PATHS=""
-    for mask_path in /proc/cmdline /proc/cpuinfo /proc/meminfo; do
-        if [ -e "$mask_path" ]; then
-            if [ -n "$MASK_PATHS" ]; then
-                MASK_PATHS="${MASK_PATHS}:${mask_path}"
-            else
-                MASK_PATHS="$mask_path"
-            fi
-        fi
-    done
-    if [ -n "$MASK_PATHS" ]; then
-        SEC_OPTS+=(--security-opt "mask=$MASK_PATHS")
-    fi
+	SEC_OPTS=(
+		--cap-drop ALL
+		--security-opt no-new-privileges
+	)
+	MASK_PATHS=""
+	for mask_path in /proc/cmdline /proc/cpuinfo /proc/meminfo; do
+		if [ -e "$mask_path" ]; then
+			if [ -n "$MASK_PATHS" ]; then
+				MASK_PATHS="${MASK_PATHS}:${mask_path}"
+			else
+				MASK_PATHS="$mask_path"
+			fi
+		fi
+	done
+	if [ -n "$MASK_PATHS" ]; then
+		SEC_OPTS+=(--security-opt "mask=$MASK_PATHS")
+	fi
 else
-    SEC_OPTS=(--cap-drop ALL --security-opt no-new-privileges:true)
+	SEC_OPTS=(--cap-drop ALL --security-opt no-new-privileges:true)
 fi
 
-RUN_OPTS=(--sysctl net.ipv4.ip_forward=0 --sysctl net.core.somaxconn=1111 \
-    --sysctl net.ipv4.tcp_fin_timeout=9 --sysctl "net.ipv4.ip_local_port_range=10000 20000")
+RUN_OPTS=(--sysctl net.ipv4.ip_forward=0 --sysctl net.core.somaxconn=1111
+	--sysctl net.ipv4.tcp_fin_timeout=9 --sysctl "net.ipv4.ip_local_port_range=10000 20000")
 if [ "$NETWORK" = host ] || [ "$NETWORK_DRIVER" = host ]; then
-    # These sysctls are safe only in a separate network namespace.
-    RUN_OPTS=()
+	# These sysctls are safe only in a separate network namespace.
+	RUN_OPTS=()
 fi
 if [ "$GVISOR" -eq 1 ]; then
-    RUN_OPTS+=(--runtime runsc)
+	RUN_OPTS+=(--runtime runsc)
 fi
 
 # Pin the container to as many host CPUs as its quota implies so affinity
@@ -416,7 +441,7 @@ CPU_INT="${CPUS_LIMIT%%.*}"
 CPU_FRAC="${CPUS_LIMIT#*.}"
 CPU_N="$CPU_INT"
 if [ "$CPU_FRAC" != "$CPUS_LIMIT" ] && [[ "$CPU_FRAC" == *[1-9]* ]]; then
-    CPU_N=$((CPU_INT + 1))
+	CPU_N=$((CPU_INT + 1))
 fi
 CPUSET_CPUS="0-$((CPU_N - 1))"
 # Node 0 always exists; pinning it hides host NUMA topology (Mems_allowed).
@@ -424,81 +449,81 @@ CPUSET_MEMS="0"
 
 CONFIG_MODE="readonly"
 if [ "$CONFIG_RW" -eq 1 ]; then
-    CONFIG_MODE="rw"
+	CONFIG_MODE="rw"
 fi
 
 LAUNCH_DIR="$(mktemp -d /tmp/opencode-launch.XXXXXXXX)"
 cleanup_launch() {
-    rm -f -- "$LAUNCH_DIR/resolv.conf" "$LAUNCH_DIR/hosts"
-    rmdir -- "$LAUNCH_DIR"
+	rm -f -- "$LAUNCH_DIR/resolv.conf" "$LAUNCH_DIR/hosts"
+	rmdir -- "$LAUNCH_DIR"
 }
 trap cleanup_launch EXIT
 RESOLVER="$DNS_SERVER"
 if [ "$RUNTIME_CMD" = docker ] && [ -n "$NETWORK" ] &&
-   [ "$NETWORK" != none ] && [ "$NETWORK_NAME" != bridge ] && [ "$NETWORK_DRIVER" != host ]; then
-    # Docker's embedded resolver preserves DNS names on user-selected networks.
-    # --dns below sets its upstream without copying the host resolv.conf.
-    RESOLVER=127.0.0.11
+	[ "$NETWORK" != none ] && [ "$NETWORK_NAME" != bridge ] && [ "$NETWORK_DRIVER" != host ]; then
+	# Docker's embedded resolver preserves DNS names on user-selected networks.
+	# --dns below sets its upstream without copying the host resolv.conf.
+	RESOLVER=127.0.0.11
 fi
-printf 'nameserver %s\n' "$RESOLVER" > "$LAUNCH_DIR/resolv.conf"
-printf '127.0.0.1 localhost opencode\n::1 localhost ip6-localhost ip6-loopback\n' > "$LAUNCH_DIR/hosts"
+printf 'nameserver %s\n' "$RESOLVER" >"$LAUNCH_DIR/resolv.conf"
+printf '127.0.0.1 localhost opencode\n::1 localhost ip6-localhost ip6-loopback\n' >"$LAUNCH_DIR/hosts"
 
 MOUNT_OPTS=()
 NONRECURSIVE=bind-recursive=disabled
 EMPTY_TMPFS=""
 if [ "$RUNTIME_CMD" = podman ]; then
-    NONRECURSIVE=bind-nonrecursive
-    # Podman otherwise copies the hidden source contents into the mask.
-    EMPTY_TMPFS=,notmpcopyup
+	NONRECURSIVE=bind-nonrecursive
+	# Podman otherwise copies the hidden source contents into the mask.
+	EMPTY_TMPFS=,notmpcopyup
 fi
 MOUNT_OPTS+=(
-    --mount "type=tmpfs,dst=/sys/devices,readonly,tmpfs-size=4096$EMPTY_TMPFS"
-    --mount "type=tmpfs,dst=/sys/module,readonly,tmpfs-size=4096$EMPTY_TMPFS"
-    --mount "type=tmpfs,dst=/sys/bus/pci,readonly,tmpfs-size=4096$EMPTY_TMPFS"
-    --mount "type=tmpfs,dst=/sys/bus/usb,readonly,tmpfs-size=4096$EMPTY_TMPFS"
-    --mount "type=tmpfs,dst=/sys/bus/scsi,readonly,tmpfs-size=4096$EMPTY_TMPFS"
-    --mount "type=tmpfs,dst=/sys/block,readonly,tmpfs-size=4096$EMPTY_TMPFS"
-    --mount "type=tmpfs,dst=/sys/class/dmi/id,readonly,tmpfs-size=4096$EMPTY_TMPFS"
-    --mount "type=tmpfs,dst=/sys/kernel,readonly,tmpfs-size=4096$EMPTY_TMPFS"
-    --mount "type=tmpfs,dst=/sys/power,readonly,tmpfs-size=4096$EMPTY_TMPFS"
-    --mount "type=tmpfs,dst=/sys/fs/pstore,readonly,tmpfs-size=4096$EMPTY_TMPFS"
+	--mount "type=tmpfs,dst=/sys/devices,readonly,tmpfs-size=4096$EMPTY_TMPFS"
+	--mount "type=tmpfs,dst=/sys/module,readonly,tmpfs-size=4096$EMPTY_TMPFS"
+	--mount "type=tmpfs,dst=/sys/bus/pci,readonly,tmpfs-size=4096$EMPTY_TMPFS"
+	--mount "type=tmpfs,dst=/sys/bus/usb,readonly,tmpfs-size=4096$EMPTY_TMPFS"
+	--mount "type=tmpfs,dst=/sys/bus/scsi,readonly,tmpfs-size=4096$EMPTY_TMPFS"
+	--mount "type=tmpfs,dst=/sys/block,readonly,tmpfs-size=4096$EMPTY_TMPFS"
+	--mount "type=tmpfs,dst=/sys/class/dmi/id,readonly,tmpfs-size=4096$EMPTY_TMPFS"
+	--mount "type=tmpfs,dst=/sys/kernel,readonly,tmpfs-size=4096$EMPTY_TMPFS"
+	--mount "type=tmpfs,dst=/sys/power,readonly,tmpfs-size=4096$EMPTY_TMPFS"
+	--mount "type=tmpfs,dst=/sys/fs/pstore,readonly,tmpfs-size=4096$EMPTY_TMPFS"
 )
 MOUNT_OPTS+=(
-    --mount "type=bind,src=$PROJECT,dst=/workspace,$NONRECURSIVE,bind-propagation=rprivate"
-    --mount "type=tmpfs,dst=/workspace/.opencode-sandbox,readonly,tmpfs-size=4096$EMPTY_TMPFS"
+	--mount "type=bind,src=$PROJECT,dst=/workspace,$NONRECURSIVE,bind-propagation=rprivate"
+	--mount "type=tmpfs,dst=/workspace/.opencode-sandbox,readonly,tmpfs-size=4096$EMPTY_TMPFS"
 )
 if [ "$CONTAINER_UID" -ne 0 ]; then
-    # Running as the host user, HOME=/root must be writable. Mask the image's
-    # /root with an empty tmpfs; the state and config binds layer on top.
-    MOUNT_OPTS+=(--mount "type=tmpfs,dst=/root,tmpfs-size=1073741824,tmpfs-mode=1777$EMPTY_TMPFS")
+	# Running as the host user, HOME=/root must be writable. Mask the image's
+	# /root with an empty tmpfs; the state and config binds layer on top.
+	MOUNT_OPTS+=(--mount "type=tmpfs,dst=/root,tmpfs-size=1073741824,tmpfs-mode=1777$EMPTY_TMPFS")
 fi
 MOUNT_OPTS+=(
-    --mount "type=bind,src=$STATE_DIR,dst=/root/.local/share/opencode,$NONRECURSIVE,bind-propagation=rprivate"
-    --mount "type=bind,src=$CONFIG_DIR,dst=/root/.config/opencode,$CONFIG_MODE,$NONRECURSIVE,bind-propagation=rprivate"
-    --mount "type=bind,src=$LAUNCH_DIR/resolv.conf,dst=/etc/resolv.conf,readonly"
-    --mount "type=bind,src=$LAUNCH_DIR/hosts,dst=/etc/hosts,readonly"
+	--mount "type=bind,src=$STATE_DIR,dst=/root/.local/share/opencode,$NONRECURSIVE,bind-propagation=rprivate"
+	--mount "type=bind,src=$CONFIG_DIR,dst=/root/.config/opencode,$CONFIG_MODE,$NONRECURSIVE,bind-propagation=rprivate"
+	--mount "type=bind,src=$LAUNCH_DIR/resolv.conf,dst=/etc/resolv.conf,readonly"
+	--mount "type=bind,src=$LAUNCH_DIR/hosts,dst=/etc/hosts,readonly"
 )
 
 "$RUNTIME_CMD" run --init --rm \
-    "${TTY_OPTS[@]}" \
-    "${PULL_OPTS[@]}" \
-    "${RUN_OPTS[@]}" \
-    --name "$CONTAINER_NAME" \
-    --hostname opencode \
-    --dns "$DNS_SERVER" \
-    --ipc private \
-    --cgroupns private \
-    "${USER_OPTS[@]}" \
-    "${SEC_OPTS[@]}" \
-    --pids-limit "$PIDS_LIMIT" \
-    --memory "$MEM_LIMIT" \
-    --memory-swap "$MEM_LIMIT" \
-    --ulimit core=0 \
-    --cpus "$CPUS_LIMIT" \
-    --cpuset-cpus "$CPUSET_CPUS" \
-    --cpuset-mems "$CPUSET_MEMS" \
-    "${MOUNT_OPTS[@]}" \
-    --workdir /workspace \
-    "${NET_OPTS[@]}" \
-    "$IMAGE" \
-    "${OPENCODE_ARGS[@]}"
+	"${TTY_OPTS[@]}" \
+	"${PULL_OPTS[@]}" \
+	"${RUN_OPTS[@]}" \
+	--name "$CONTAINER_NAME" \
+	--hostname opencode \
+	--dns "$DNS_SERVER" \
+	--ipc private \
+	--cgroupns private \
+	"${USER_OPTS[@]}" \
+	"${SEC_OPTS[@]}" \
+	--pids-limit "$PIDS_LIMIT" \
+	--memory "$MEM_LIMIT" \
+	--memory-swap "$MEM_LIMIT" \
+	--ulimit core=0 \
+	--cpus "$CPUS_LIMIT" \
+	--cpuset-cpus "$CPUSET_CPUS" \
+	--cpuset-mems "$CPUSET_MEMS" \
+	"${MOUNT_OPTS[@]}" \
+	--workdir /workspace \
+	"${NET_OPTS[@]}" \
+	"$IMAGE" \
+	"${OPENCODE_ARGS[@]}"
