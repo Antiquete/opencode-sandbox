@@ -400,7 +400,7 @@ CPUSET_CPUS="0-$((CPU_N - 1))"
 # Node 0 always exists; pinning it hides host NUMA topology (Mems_allowed).
 CPUSET_MEMS="0"
 
-CONFIG_MODE="ro"
+CONFIG_MODE="readonly"
 if [ "$CONFIG_RW" -eq 1 ]; then
     CONFIG_MODE="rw"
 fi
