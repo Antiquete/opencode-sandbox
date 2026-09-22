@@ -23,6 +23,10 @@ while [ "$#" -gt 0 ]; do
             PULL_ALWAYS=0
             shift
             ;;
+        --no-network)
+            NETWORK=none
+            shift
+            ;;
         --docker-network)
             if [ "$#" -lt 2 ]; then
                 echo "Error: --docker-network requires a value."
@@ -293,7 +297,7 @@ PROJ_SLUG="$(basename "$PROJECT" \
 PROJ_HASH="$(printf '%s' "$PROJECT" | cksum | cut -d' ' -f1)"
 CONTAINER_NAME="opencode-${PROJ_SLUG}-${PROJ_HASH}"
 
-if [ -n "$NETWORK" ] && ! "$RUNTIME_CMD" network inspect "$NETWORK" >/dev/null 2>&1; then
+if [ -n "$NETWORK" ] && [ "$NETWORK" != none ] && ! "$RUNTIME_CMD" network inspect "$NETWORK" >/dev/null 2>&1; then
     echo "${RUNTIME_CMD} network '$NETWORK' missing - creating it..."
     "$RUNTIME_CMD" network create "$NETWORK" >/dev/null
 fi

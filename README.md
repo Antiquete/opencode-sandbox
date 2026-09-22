@@ -69,6 +69,7 @@ opencode-sandbox --continue
 | Flag                      | Description                                                                                                                                                                                                                                                                                                                        |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--offline`               | Skip the image pull (`--pull never`); use whatever image is already present. Useful on offline/unreliable networks.                                                                                                                                                                                                                 |
+| `--no-network`            | Run with no network: the container gets `--network none`, with no bridge and no external connectivity. Pair with `--offline` for a fully offline local session. The network is not auto-created.                                                                                                                                     |
 | `--runtime <name>`        | Force a container runtime: `docker`, `podman`, or `auto` (default). `auto` uses whichever is installed and running.                                                                                                                                                                                                                 |
 | `--gvisor`                | Run under gVisor's `runsc` sandboxing runtime instead of the default `runc` (Docker only; requires the `runsc` runtime registered in `/etc/docker/daemon.json`). `runsc` runs the container in a userspace kernel, so host `/proc` and `/sys` surfaces are emulated, not exposed.                                                     |
 | `--docker-network <name>` | Attach the container to a named network (created automatically if it doesn't exist; requires permission to create networks). Defaults to the runtime's default network. Useful for reaching a provider on another container (e.g. a local LLM server on `local-ai-net`), or `host` to reach services bound to the host's `localhost`. |
@@ -107,7 +108,8 @@ The container starts with sane resource limits: 4 GB RAM, 2 CPUs, and
 `OPENCODE_PIDS` (e.g. `OPENCODE_MEMORY=8g opencode-sandbox`).
 
 Network internals are hardened with conservative defaults in the container's
-own network namespace (unless `--docker-network host` is used).
+own network namespace (unless `--docker-network host` is used). `--no-network`
+disables networking entirely (`--network none`), for fully offline sessions.
 
 The agent is also pinned to the CPUs its quota implies, so tools that report
 core counts (`nproc`, `/proc/cpuinfo`, `Cpus_allowed`) show the sandbox size
