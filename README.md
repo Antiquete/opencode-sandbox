@@ -144,6 +144,10 @@ Both scripts run with a restrictive `umask 077`, so everything they create — t
 fresh resolver/hosts stubs and the private `.opencode-sandbox` store — is never
 world-readable or world-writable.
 
+`opencode-project-init` only ever creates the state store itself (never a
+symlink and never an existing non-directory), and a fresh store is `chmod 0700`
+so only the project owner can read the sandbox session data.
+
 Both runtimes mask the host `/sys` fingerprint surfaces on read-only tmpfs
 (`/sys/devices`, `/sys/module`, `/sys/bus/pci|usb|scsi`, `/sys/block`,
 `/sys/class/dmi/id`, `/sys/kernel`, `/sys/power`, `/sys/fs/pstore`).
