@@ -129,6 +129,10 @@ config location other than `~/.config/opencode`, set `OPENCODE_CONFIG_DIR`.
 The launcher must be installed outside the sandboxed project directory, so the
 agent can't replace the trusted launcher from inside.
 
+Both scripts run with a restrictive `umask 077`, so everything they create — the
+fresh resolver/hosts stubs and the private `.opencode-sandbox` store — is never
+world-readable or world-writable.
+
 Both runtimes mask the host `/sys` fingerprint surfaces on read-only tmpfs
 (`/sys/devices`, `/sys/module`, `/sys/bus/pci|usb|scsi`, `/sys/block`,
 `/sys/class/dmi/id`, `/sys/kernel`, `/sys/power`, `/sys/fs/pstore`).
