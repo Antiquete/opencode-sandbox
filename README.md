@@ -265,6 +265,20 @@ runtime would violate the sandbox contract.
   surfaces are emulated rather than exposed. Requires `/dev/kvm` and a Kata
   runtime registered with the container daemon.
 
+## Development
+
+Shell scripts (`opencode-sandbox`, `opencode-project-init`, `packaging/build.sh`)
+are formatted with [shfmt](https://github.com/mvdan/sh). Enable the committed
+pre-commit hook to auto-format on every commit:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+The hook formats staged shell scripts with `shfmt -w`, re-stages them, and skips
+partially staged files so it never commits changes you didn't stage. Install
+`shfmt` (e.g. `apk add shfmt`, `brew install shfmt`), or commits pass untouched.
+
 ## License
 
 GPL-3.0-or-later — see [LICENSE](LICENSE).
