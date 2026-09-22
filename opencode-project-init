@@ -37,18 +37,32 @@ if [ ! -e "$STATE_DIR" ]; then
     chmod 0700 -- "$STATE_DIR"
 fi
 
+IGNORE_ENTRY='.opencode-sandbox/'
 GITIGNORE_STATUS="skipped (not a git repo)"
 if [ -e "$PROJECT/.git" ]; then
     GITIGNORE="$PROJECT/.gitignore"
-    if [ ! -f "$GITIGNORE" ]; then
-        printf '%s\n' '.opencode-sandbox/' > "$GITIGNORE"
-        GITIGNORE_STATUS="added .opencode-sandbox/"
-    elif ! grep -qx '.opencode-sandbox/' "$GITIGNORE" 2>/dev/null; then
+    if [ -L "$GITIGNORE" ]; then
+        echo "Error: $GITIGNORE is a symlink; refusing to write through it."
+        exit 1
+    fi
+    if [ -e "$GITIGNORE" ] && [ ! -f "$GITIGNORE" ]; then
+        echo "Error: $GITIGNORE exists but is not a regular file."
+        exit 1
+    fi
+    if [ ! -e "$GITIGNORE" ]; then
+        printf '%s\n' "$IGNORE_ENTRY" > "$GITIGNORE"
+        GITIGNORE_STATUS="added $IGNORE_ENTRY"
+    elif ! grep -qxF "$IGNORE_ENTRY" "$GITIGNORE" 2>/dev/null; then
+        TMP_IGNORE="$(mktemp "$PROJECT/.gitignore.tmp.XXXXXXXX")"
         if [ -s "$GITIGNORE" ] && [ "$(tail -c1 "$GITIGNORE")" != $'\n' ]; then
-            printf '\n' >> "$GITIGNORE"
+            { cat -- "$GITIGNORE"; printf '\n'; } > "$TMP_IGNORE"
+        else
+            cat -- "$GITIGNORE" > "$TMP_IGNORE"
         fi
-        printf '%s\n' '.opencode-sandbox/' >> "$GITIGNORE"
-        GITIGNORE_STATUS="added .opencode-sandbox/"
+        printf '%s\n' "$IGNORE_ENTRY" >> "$TMP_IGNORE"
+        chmod "$(stat -c %a -- "$GITIGNORE")" -- "$TMP_IGNORE"
+        mv -- "$TMP_IGNORE" "$GITIGNORE"
+        GITIGNORE_STATUS="added $IGNORE_ENTRY"
     else
         GITIGNORE_STATUS="already ignored"
     fi

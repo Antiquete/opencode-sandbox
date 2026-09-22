@@ -148,6 +148,10 @@ world-readable or world-writable.
 symlink and never an existing non-directory), and a fresh store is `chmod 0700`
 so only the project owner can read the sandbox session data.
 
+The `.gitignore` update is atomic: it writes a temp file in the project and
+replaces the target in one step, preserving the file's existing permissions,
+and it refuses symlinked or non-regular `.gitignore` files.
+
 Both runtimes mask the host `/sys` fingerprint surfaces on read-only tmpfs
 (`/sys/devices`, `/sys/module`, `/sys/bus/pci|usb|scsi`, `/sys/block`,
 `/sys/class/dmi/id`, `/sys/kernel`, `/sys/power`, `/sys/fs/pstore`).
