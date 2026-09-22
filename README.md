@@ -109,8 +109,11 @@ The container starts with sane resource limits: 4 GB RAM, 2 CPUs, and
 `OPENCODE_PIDS` (e.g. `OPENCODE_MEMORY=8g opencode-sandbox`).
 
 Network internals are hardened with conservative defaults in the container's
-own network namespace (unless `--docker-network host` is used). `--no-network`
-disables networking entirely (`--network none`), for fully offline sessions.
+own network namespace (unless `--docker-network host` is used). The
+network-tuning sysctls are skipped whenever the container shares the host's
+network stack — whether via the user's own `--docker-network host` flag or any
+host-driver bridge the user supplied. `--no-network` disables networking
+entirely (`--network none`), for fully offline sessions.
 
 The agent is also pinned to the CPUs its quota implies, so tools that report
 core counts (`nproc`, `/proc/cpuinfo`, `Cpus_allowed`) show the sandbox size
