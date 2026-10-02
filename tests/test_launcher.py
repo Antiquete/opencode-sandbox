@@ -49,7 +49,9 @@ class LauncherTests(unittest.TestCase):
             TEST_RUNTIME_LOG=str(self.log),
         )
 
-    def launch(self, *args, runtime="docker", env_extra=None, launcher=None):
+    def launch(
+        self, *args, runtime="docker", env_extra=None, launcher=None, input_text="y\n"
+    ):
         env = dict(self.env, OPENCODE_RUNTIME=runtime)
         if env_extra:
             env.update(env_extra)
@@ -57,7 +59,7 @@ class LauncherTests(unittest.TestCase):
             ["bash", str(launcher or ROOT / "opencode-sandbox"), *args],
             cwd=self.project,
             env=env,
-            input="y\n",
+            input=input_text,
             text=True,
             capture_output=True,
             timeout=60,
@@ -75,6 +77,13 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(len(runs), 1)
         return runs[0]
 
+    def launch_without_run(self, *args, **kwargs):
+        self.log.write_text("")
+        result = self.launch(*args, **kwargs)
+        calls = list(map(json.loads, self.log.read_text().splitlines()))
+        self.assertFalse(any(call[:1] == ["run"] for call in calls))
+        return result
+
     @staticmethod
     def mounts(args):
         """Return values passed to --mount in a recorded runtime call."""
@@ -82,6 +91,7 @@ class LauncherTests(unittest.TestCase):
 
     def test_shared_config_mounts_and_container_limits_are_retained(self):
         args = self.run_args()
+        self.assertEqual(args[args.index("--pull") + 1], "always")
         envs = [args[i + 1] for i, arg in enumerate(args) if arg == "--env"]
         self.assertIn("OPENCODE_GUARD_MEMORY=4g", envs)
         mounts = self.mounts(args)
@@ -139,6 +149,10 @@ class LauncherTests(unittest.TestCase):
         self.assertIn("no-new-privileges:true", security_opts)
         self.assertNotIn("--cap-add", args)
 
+    def test_offline_mode_keeps_the_image_pull_disabled(self):
+        args = self.run_args("--offline")
+        self.assertEqual(args[args.index("--pull") + 1], "never")
+
     def test_podman_does_not_copy_hidden_state_into_mask(self):
         args = self.run_args("--runtime", "podman")
         mounts = self.mounts(args)
@@ -158,7 +172,67 @@ class LauncherTests(unittest.TestCase):
             ):
                 self.assertIn("bind-nonrecursive", mount)
 
-    def test_rootful_runtimes_map_host_uid_gid_and_mask_root_home(self):
+    def test_auto_runtime_falls_back_to_podman_when_docker_is_unavailable(self):
+        args = self.run_args(
+            runtime="auto", env_extra={"TEST_DOCKER_INFO_FAIL": "1"}
+        )
+        calls = list(map(json.loads, self.log.read_text().splitlines()))
+        self.assertEqual(
+            [call for call in calls if call[:1] == ["info"]],
+            [
+                ["info", "--format", "{{json .SecurityOptions}}"],
+                ["info", "--format", "{{.Host.Security.Rootless}}"],
+            ],
+        )
+        self.assertIn("bind-nonrecursive", " ".join(self.mounts(args)))
+        self.assertIn("no-new-privileges", args)
+        self.assertNotIn("no-new-privileges:true", args)
+
+    def test_runtime_errors_cover_missing_cli_and_unreachable_runtimes(self):
+        minimal_bin = self.base / "minimal-bin"
+        minimal_bin.mkdir()
+        for command in ("bash", "dirname", "readlink", "find", "mkdir"):
+            (minimal_bin / command).symlink_to(shutil.which(command))
+        missing_cli = self.launch_without_run(
+            runtime="docker", env_extra={"PATH": str(minimal_bin)}
+        )
+        self.assertNotEqual(missing_cli.returncode, 0)
+        self.assertIn("docker' CLI was not found", missing_cli.stdout)
+
+        gvisor_without_runtime = self.launch_without_run(
+            "--gvisor", runtime="podman", env_extra={"TEST_PODMAN_INFO_FAIL": "1"}
+        )
+        self.assertNotEqual(gvisor_without_runtime.returncode, 0)
+        self.assertIn("--gvisor requires Docker", gvisor_without_runtime.stdout)
+        self.assertNotIn("cannot reach the podman daemon", gvisor_without_runtime.stdout)
+
+        gvisor_missing_cli = self.launch_without_run(
+            "--gvisor", runtime="docker", env_extra={"PATH": str(minimal_bin)}
+        )
+        self.assertNotEqual(gvisor_missing_cli.returncode, 0)
+        self.assertIn("docker' CLI was not found", gvisor_missing_cli.stdout)
+
+        unreachable = self.launch_without_run(
+            env_extra={"TEST_DOCKER_INFO_FAIL": "1"}
+        )
+        self.assertNotEqual(unreachable.returncode, 0)
+        self.assertIn("cannot reach the docker daemon", unreachable.stdout)
+
+        no_runtime = self.launch_without_run(
+            runtime="auto",
+            env_extra={
+                "TEST_DOCKER_INFO_FAIL": "1",
+                "TEST_PODMAN_INFO_FAIL": "1",
+            },
+        )
+        self.assertNotEqual(no_runtime.returncode, 0)
+        self.assertIn("no container runtime found", no_runtime.stdout)
+
+        unknown_runtime = self.launch_without_run(runtime="unsupported")
+        self.assertNotEqual(unknown_runtime.returncode, 0)
+        self.assertIn("unknown runtime 'unsupported'", unknown_runtime.stdout)
+
+    def test_runtime_uid_mapping_handles_rootful_and_rootless_modes(self):
         cases = (
             ("docker", (), {"TEST_DOCKER_SECURITY_OPTIONS": "[]"}),
             (
@@ -187,6 +261,14 @@ class LauncherTests(unittest.TestCase):
                     )
                     self.assertIn("tmpfs-size=1073741824", root_tmpfs)
                     self.assertIn("tmpfs-mode=1777", root_tmpfs)
+
+        for runtime, env_extra in (
+            ("docker", {"TEST_DOCKER_SECURITY_OPTIONS": '["name=rootless"]'}),
+            ("podman", {"TEST_PODMAN_ROOTLESS": "true"}),
+        ):
+            with self.subTest(runtime=runtime, rootless=True):
+                args = self.run_args(runtime=runtime, env_extra=env_extra)
+                self.assertNotIn("--user", args)
 
     def test_guard_mount_and_exact_entrypoint_argv(self):
         guard_link = self.base / "guard-link"
@@ -224,6 +306,25 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(
             args[image_index:], ["test/opencode:local", "run", "hello world"]
         )
+        calls = list(map(json.loads, self.log.read_text().splitlines()))
+        self.assertEqual(len([call for call in calls if call[:1] == ["info"]]), 1)
+
+        args = self.run_args(
+            "--gvisor",
+            env_extra={"TEST_DOCKER_SECURITY_OPTIONS": '["name=rootless"]'},
+        )
+        self.assertNotIn("--user", args)
+        calls = list(map(json.loads, self.log.read_text().splitlines()))
+        info_calls = [call for call in calls if call[:1] == ["info"]]
+        self.assertEqual(len(info_calls), 1)
+        self.assertIn("Runtimes", info_calls[0][info_calls[0].index("--format") + 1])
+
+    def test_gvisor_requires_an_exact_runsc_registration(self):
+        result = self.launch_without_run(
+            "--gvisor", env_extra={"TEST_RUNTIMES": "runc\nmy-runsc"}
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("needs the 'runsc' runtime", result.stdout)
 
     def test_default_guard_comes_from_launcher_build_directory(self):
         install = self.base / "install"
@@ -249,21 +350,25 @@ class LauncherTests(unittest.TestCase):
         self.assertIn(f"src={default_guard},", guard_mount)
 
     def test_missing_or_non_executable_guard_fails_closed(self):
-        missing = self.launch(
+        missing = self.launch_without_run(
             env_extra={"OPENCODE_GUARD": str(self.base / "absent")}
         )
         self.assertNotEqual(missing.returncode, 0)
         self.assertIn("guard", missing.stdout + missing.stderr)
         non_executable = self.base / "non-executable-guard"
         non_executable.write_text("not executable\n")
-        rejected = self.launch(env_extra={"OPENCODE_GUARD": str(non_executable)})
+        rejected = self.launch_without_run(
+            env_extra={"OPENCODE_GUARD": str(non_executable)}
+        )
         self.assertNotEqual(rejected.returncode, 0)
 
     def test_guard_cannot_live_under_writable_project_or_config(self):
         project_guard = self.project / "guard"
         project_guard.write_bytes(b"#!/bin/sh\n")
         project_guard.chmod(0o755)
-        rejected = self.launch(env_extra={"OPENCODE_GUARD": str(project_guard)})
+        rejected = self.launch_without_run(
+            env_extra={"OPENCODE_GUARD": str(project_guard)}
+        )
         self.assertNotEqual(rejected.returncode, 0)
         self.assertIn("writable project", rejected.stdout + rejected.stderr)
 
@@ -271,9 +376,10 @@ class LauncherTests(unittest.TestCase):
         config_guard.write_bytes(b"#!/bin/sh\n")
         config_guard.chmod(0o755)
         self.assertEqual(
-            self.launch(env_extra={"OPENCODE_GUARD": str(config_guard)}).returncode, 0
+            self.launch(env_extra={"OPENCODE_GUARD": str(config_guard)}).returncode,
+            0,
         )
-        rejected = self.launch(
+        rejected = self.launch_without_run(
             "--config-rw", env_extra={"OPENCODE_GUARD": str(config_guard)}
         )
         self.assertNotEqual(rejected.returncode, 0)
@@ -283,7 +389,15 @@ class LauncherTests(unittest.TestCase):
         unsafe_guard = self.base / "guard,unsafe"
         unsafe_guard.write_bytes(b"#!/bin/sh\n")
         unsafe_guard.chmod(0o755)
-        result = self.launch(env_extra={"OPENCODE_GUARD": str(unsafe_guard)})
+        result = self.launch_without_run(
+            env_extra={"OPENCODE_GUARD": str(unsafe_guard)}
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("container mount paths", result.stdout + result.stderr)
+
+        raw_link = self.base / "guard,link"
+        raw_link.symlink_to(self.guard)
+        result = self.launch_without_run(env_extra={"OPENCODE_GUARD": str(raw_link)})
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("container mount paths", result.stdout + result.stderr)
 
@@ -292,13 +406,34 @@ class LauncherTests(unittest.TestCase):
         newline_target.chmod(0o755)
         guard_link = self.base / "guard-link"
         guard_link.symlink_to(newline_target)
-        result = self.launch(env_extra={"OPENCODE_GUARD": str(guard_link)})
+        result = self.launch_without_run(
+            env_extra={"OPENCODE_GUARD": str(guard_link)}
+        )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("container mount paths", result.stdout + result.stderr)
 
+    def test_cancellation_prevents_network_creation_and_container_launch(self):
+        result = self.launch(
+            "--docker-network",
+            "new-network",
+            input_text="n\n",
+            env_extra={"TEST_NET_MISSING": "1"},
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Cancelled.", result.stdout)
+        calls = list(map(json.loads, self.log.read_text().splitlines()))
+        self.assertFalse(any(call[:2] == ["network", "create"] for call in calls))
+        self.assertFalse(any(call[:1] == ["run"] for call in calls))
+
+    def test_launch_files_are_cleaned_after_runtime_failure(self):
+        existing = set(Path("/tmp").glob("opencode-launch.*"))
+        result = self.launch(env_extra={"TEST_DOCKER_RUN_FAIL": "1"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(set(Path("/tmp").glob("opencode-launch.*")), existing)
+
     def test_unsafe_network_modes_rejected(self):
         for bad in ("host;evil", "a b", "net,other", "--privileged"):
-            result = self.launch("--docker-network", bad)
+            result = self.launch_without_run("--docker-network", bad)
             self.assertNotEqual(result.returncode, 0)
 
     def test_host_network_skips_host_sysctl_overrides(self):
@@ -326,11 +461,13 @@ class LauncherTests(unittest.TestCase):
         self.assertNotIn("readonly", state)
         for overlap in (str(self.project), str(self.project / "sub"), str(self.base)):
             (self.project / "sub").mkdir(exist_ok=True)
-            result = self.launch(env_extra={"OPENCODE_CONFIG_DIR": overlap})
+            result = self.launch_without_run(env_extra={"OPENCODE_CONFIG_DIR": overlap})
             self.assertNotEqual(result.returncode, 0, overlap)
         link = self.base / "config-link"
         link.symlink_to(self.project)
-        result = self.launch(env_extra={"OPENCODE_CONFIG_DIR": str(link)})
+        result = self.launch_without_run(
+            env_extra={"OPENCODE_CONFIG_DIR": str(link)}
+        )
         self.assertNotEqual(result.returncode, 0)
 
     def test_image_and_gvisor_validation(self):
@@ -346,7 +483,7 @@ class LauncherTests(unittest.TestCase):
         target.mkdir()
         (self.project / ".opencode-sandbox").rmdir()
         (self.project / ".opencode-sandbox").symlink_to(target)
-        self.assertNotEqual(self.launch().returncode, 0)
+        self.assertNotEqual(self.launch_without_run().returncode, 0)
         (self.project / ".opencode-sandbox").unlink()
         (self.project / ".opencode-sandbox").mkdir(mode=0o700)
 
@@ -354,7 +491,7 @@ class LauncherTests(unittest.TestCase):
         server = socket.socket(socket.AF_UNIX)
         try:
             server.bind(str(sock))
-            self.assertNotEqual(self.launch().returncode, 0)
+            self.assertNotEqual(self.launch_without_run().returncode, 0)
         finally:
             server.close()
             sock.unlink()
@@ -362,7 +499,7 @@ class LauncherTests(unittest.TestCase):
         fifo = self.project / "pipe"
         os.mkfifo(fifo)
         try:
-            self.assertNotEqual(self.launch().returncode, 0)
+            self.assertNotEqual(self.launch_without_run().returncode, 0)
         finally:
             fifo.unlink()
 
