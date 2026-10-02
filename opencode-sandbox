@@ -9,6 +9,7 @@ SCRIPT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
 IMAGE="${OPENCODE_IMAGE:-ghcr.io/anomalyco/opencode:latest}"
 RUNTIME="${OPENCODE_RUNTIME:-auto}"
 GVISOR="${OPENCODE_GVISOR:-0}"
+GUARD="${OPENCODE_GUARD:-$SCRIPT_DIR/build/opencode-guard}"
 
 STATE_DIR="$PROJECT/.opencode-sandbox"
 CONFIG_DIR="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
@@ -200,6 +201,33 @@ if ! "$RUNTIME_CMD" info >/dev/null 2>&1; then
 	exit 1
 fi
 
+GUARD_ENABLED=0
+if [ "$GVISOR" -eq 0 ]; then
+	if [ ! -f "$GUARD" ] || [ ! -x "$GUARD" ]; then
+		echo "Error: the sandbox guard is missing or not executable."
+		echo "Run 'make' in the launcher source directory or set OPENCODE_GUARD to a trusted guard binary."
+		exit 1
+	fi
+	case "$GUARD" in
+	*,* | *\"* | *$'\n'* | *$'\r'*)
+		echo "Error: container mount paths cannot contain commas, quotes, or newlines:"
+		echo "  $GUARD"
+		exit 1
+		;;
+	esac
+	if ! RESOLVED_GUARD="$(readlink -f -- "$GUARD" 2>/dev/null && printf '.')"; then
+		RESOLVED_GUARD=""
+	fi
+	RESOLVED_GUARD="${RESOLVED_GUARD%.}"
+	RESOLVED_GUARD="${RESOLVED_GUARD%$'\n'}"
+	if [ -z "$RESOLVED_GUARD" ]; then
+		echo "Error: unable to resolve the sandbox guard path."
+		exit 1
+	fi
+	GUARD="$RESOLVED_GUARD"
+	GUARD_ENABLED=1
+fi
+
 # Under a rootful daemon the container runs as root, so state written to the
 # bind-mounted project store would stay root-owned on the host. A rootless
 # daemon already maps the unprivileged UID, so nothing extra is needed.
@@ -251,7 +279,23 @@ if [ "$CONFIG_DIR" = "$PROJECT" ] || [[ "$CONFIG_DIR" == "$PROJECT/"* ]] || [[ "
 	exit 1
 fi
 
-for path in "$PROJECT" "$STATE_DIR" "$CONFIG_DIR"; do
+if [ "$GUARD_ENABLED" -eq 1 ]; then
+	if [ "$GUARD" = "$PROJECT" ] || [[ "$GUARD" == "$PROJECT/"* ]]; then
+		echo "Error: the sandbox guard must not be inside the writable project."
+		exit 1
+	fi
+	if [ "$CONFIG_RW" -eq 1 ] &&
+		{ [ "$GUARD" = "$CONFIG_DIR" ] || [[ "$GUARD" == "$CONFIG_DIR/"* ]]; }; then
+		echo "Error: the sandbox guard must not be inside writable shared config."
+		exit 1
+	fi
+fi
+
+MOUNT_PATHS=("$PROJECT" "$STATE_DIR" "$CONFIG_DIR")
+if [ "$GUARD_ENABLED" -eq 1 ]; then
+	MOUNT_PATHS+=("$GUARD")
+fi
+for path in "${MOUNT_PATHS[@]}"; do
 	case "$path" in
 	*,* | *\"* | *$'\n'* | *$'\r'*)
 		echo "Error: container mount paths cannot contain commas, quotes, or newlines:"
@@ -503,6 +547,15 @@ MOUNT_OPTS+=(
 	--mount "type=bind,src=$LAUNCH_DIR/resolv.conf,dst=/etc/resolv.conf,readonly"
 	--mount "type=bind,src=$LAUNCH_DIR/hosts,dst=/etc/hosts,readonly"
 )
+ENTRY_OPTS=()
+ENV_OPTS=()
+COMMAND=()
+if [ "$GUARD_ENABLED" -eq 1 ]; then
+	MOUNT_OPTS+=(--mount "type=bind,src=$GUARD,dst=/opt/opencode-sandbox/guard,readonly")
+	ENTRY_OPTS=(--entrypoint /opt/opencode-sandbox/guard)
+	ENV_OPTS=(--env "OPENCODE_GUARD_MEMORY=$MEM_LIMIT")
+	COMMAND=(opencode)
+fi
 
 "$RUNTIME_CMD" run --init --rm \
 	"${TTY_OPTS[@]}" \
@@ -522,8 +575,11 @@ MOUNT_OPTS+=(
 	--cpus "$CPUS_LIMIT" \
 	--cpuset-cpus "$CPUSET_CPUS" \
 	--cpuset-mems "$CPUSET_MEMS" \
+	"${ENV_OPTS[@]}" \
 	"${MOUNT_OPTS[@]}" \
 	--workdir /workspace \
 	"${NET_OPTS[@]}" \
+	"${ENTRY_OPTS[@]}" \
 	"$IMAGE" \
+	"${COMMAND[@]}" \
 	"${OPENCODE_ARGS[@]}"
