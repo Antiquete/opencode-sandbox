@@ -226,49 +226,135 @@ static int check_open(int fd) {
            fs.f_type != CGROUP_SUPER_MAGIC && fs.f_type != CGROUP2_SUPER_MAGIC;
 }
 
-/* Open a requested file and return it only if it passes the checks. */
-static int emulate_open(const struct seccomp_notif *req, int listener, int *close_exec) {
-    uint64_t ptr = req->data.args[1];
-    int dir = (int)req->data.args[0];
-    struct open_how how = {.flags = req->data.args[2], .mode = req->data.args[3]};
-    int is_openat2 = req->data.nr == (uint32_t)__NR_openat2;
+/* ---- Mediating file opens ---- */
+
+/* Decode open/openat/creat/openat2 arguments into a path pointer, base
+ * descriptor, and flags. Returns 1 for openat2, 0 otherwise, -1 on error. */
+static int decode_open(const struct seccomp_notif *req, uint64_t *ptr, int *dir,
+                       struct open_how *how) {
+    memset(how, 0, sizeof(*how));
+    *ptr = req->data.args[1];
+    *dir = (int)req->data.args[0];
+    how->flags = req->data.args[2];
+    how->mode = req->data.args[3];
 #ifdef __NR_open
     if (req->data.nr == (uint32_t)__NR_open) {
-        ptr = req->data.args[0];
-        dir = AT_FDCWD;
-        how.flags = req->data.args[1];
-        how.mode = req->data.args[2];
+        *ptr = req->data.args[0];
+        *dir = AT_FDCWD;
+        how->flags = req->data.args[1];
+        how->mode = req->data.args[2];
     }
 #endif
 #ifdef __NR_creat
     if (req->data.nr == (uint32_t)__NR_creat) {
-        ptr = req->data.args[0];
-        dir = AT_FDCWD;
-        how.flags = O_CREAT | O_WRONLY | O_TRUNC;
-        how.mode = req->data.args[1];
+        *ptr = req->data.args[0];
+        *dir = AT_FDCWD;
+        how->flags = O_CREAT | O_WRONLY | O_TRUNC;
+        how->mode = req->data.args[1];
     }
 #endif
-    if (is_openat2) {
-        if (req->data.args[3] != sizeof(how)) {
-            errno = EINVAL;
-            return -1;
-        }
-        if (target_memory(req->pid, req->data.args[2], &how, sizeof(how), 0)) {
-            errno = EFAULT;
-            return -1;
-        }
-        /* This path option is not supported. */
-        if (how.resolve & RESOLVE_IN_ROOT) {
-            errno = EOPNOTSUPP;
+    if (req->data.nr != (uint32_t)__NR_openat2)
+        return 0;
+    if (req->data.args[3] != sizeof(*how)) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (target_memory(req->pid, req->data.args[2], how, sizeof(*how), 0)) {
+        errno = EFAULT;
+        return -1;
+    }
+    /* This path option is not supported. */
+    if (how->resolve & RESOLVE_IN_ROOT) {
+        errno = EOPNOTSUPP;
+        return -1;
+    }
+    return 1;
+}
+
+/* Make process and descriptor shortcuts point to the caller. */
+static void translate_open_path(const char *path, pid_t tid, pid_t *tgid,
+                                char translated[4096]) {
+    const char *suffix = NULL;
+    if (!strcmp(path, "/proc/net"))
+        suffix = "net";
+    else if (!strncmp(path, "/proc/net/", 10))
+        suffix = path + 6;
+    else if (!strncmp(path, "/proc/self/", 11))
+        suffix = path + 11;
+    else if (!strncmp(path, "/proc/thread-self/", 18)) {
+        suffix = path + 18;
+        *tgid = tid;
+    }
+    if (!strncmp(path, "/dev/fd/", 8)) {
+        /* Keep the translated name within its buffer. */
+        snprintf(translated, 4096, "/proc/%d/fd/%.4000s", tid, path + 8);
+    } else if (!strcmp(path, "/dev/stdin")) {
+        snprintf(translated, 4096, "/proc/%d/fd/0", tid);
+    } else if (!strcmp(path, "/dev/stdout")) {
+        snprintf(translated, 4096, "/proc/%d/fd/1", tid);
+    } else if (!strcmp(path, "/dev/stderr")) {
+        snprintf(translated, 4096, "/proc/%d/fd/2", tid);
+    } else if (suffix) {
+        snprintf(translated, 4096, "/proc/%d/%.4000s", *tgid, suffix);
+    } else {
+        snprintf(translated, 4096, "%s", path);
+    }
+}
+
+/* Open the translated path under the caller's umask and reply flags. */
+static int perform_open(int base, const char *translated, struct open_how *how,
+                        int is_openat2, unsigned mask, int *close_exec) {
+    if (!is_openat2 && !(how->flags & O_CREAT) &&
+        (how->flags & O_TMPFILE) != O_TMPFILE)
+        how->mode = 0;
+    /* Enforce magic-link denial during the actual open. */
+    how->resolve |= RESOLVE_NO_MAGICLINKS;
+    /* Prevent a late FIFO from blocking the broker during open. */
+    how->flags |= O_NONBLOCK;
+    *close_exec = !!(how->flags & O_CLOEXEC);
+    umask(mask);
+    int opened = syscall(SYS_openat2, base, translated, how, sizeof(*how));
+    int saved = errno;
+    umask(077);
+    if (opened < 0)
+        errno = saved;
+    return opened;
+}
+
+/* Check the file after opening it, when its true target is known. */
+static int verify_opened(int listener, uint64_t id, int opened,
+                         int requested_nonblock) {
+    if (!valid(listener, id) || !check_open(opened)) {
+        close(opened);
+        errno = EACCES;
+        return -1;
+    }
+    if (!requested_nonblock) {
+        int flags = fcntl(opened, F_GETFL);
+        if (flags < 0 || fcntl(opened, F_SETFL, flags & ~O_NONBLOCK)) {
+            int err = errno;
+            close(opened);
+            errno = err;
             return -1;
         }
     }
-    int requested_nonblock = !!(how.flags & O_NONBLOCK);
+    return 0;
+}
+
+/* Open a requested file and return it only if it passes the checks. */
+static int emulate_open(const struct seccomp_notif *req, int listener, int *close_exec) {
+    uint64_t ptr;
+    int dir;
+    struct open_how how;
+    int is_openat2 = decode_open(req, &ptr, &dir, &how);
+    if (is_openat2 < 0)
+        return -1;
     /* Do not allow handles that bypass normal file checks. */
     if (how.flags & O_PATH) {
         errno = EOPNOTSUPP;
         return -1;
     }
+    int requested_nonblock = !!(how.flags & O_NONBLOCK);
     char path[4096];
     int err = target_path(req->pid, ptr, path);
     if (err) {
@@ -290,35 +376,8 @@ static int emulate_open(const struct seccomp_notif *req, int listener, int *clos
         errno = EACCES;
         return -1;
     }
-
-    /* Make process and descriptor shortcuts point to the caller. */
     char translated[4096];
-    const char *suffix = NULL;
-    if (!strcmp(path, "/proc/net"))
-        suffix = "net";
-    else if (!strncmp(path, "/proc/net/", 10))
-        suffix = path + 6;
-    else if (!strncmp(path, "/proc/self/", 11))
-        suffix = path + 11;
-    else if (!strncmp(path, "/proc/thread-self/", 18)) {
-        suffix = path + 18;
-        tgid = req->pid;
-    }
-    if (!strncmp(path, "/dev/fd/", 8)) {
-        /* Keep the translated name within its buffer. */
-        snprintf(translated, sizeof(translated), "/proc/%d/fd/%.4000s", req->pid, path + 8);
-    } else if (!strcmp(path, "/dev/stdin")) {
-        snprintf(translated, sizeof(translated), "/proc/%d/fd/0", req->pid);
-    } else if (!strcmp(path, "/dev/stdout")) {
-        snprintf(translated, sizeof(translated), "/proc/%d/fd/1", req->pid);
-    } else if (!strcmp(path, "/dev/stderr")) {
-        snprintf(translated, sizeof(translated), "/proc/%d/fd/2", req->pid);
-    } else if (suffix) {
-        snprintf(translated, sizeof(translated), "/proc/%d/%.4000s", tgid, suffix);
-    } else {
-        snprintf(translated, sizeof(translated), "%s", path);
-    }
-
+    translate_open_path(path, req->pid, &tgid, translated);
     int base = AT_FDCWD;
     if (translated[0] != '/') {
         char procname[80];
@@ -332,38 +391,13 @@ static int emulate_open(const struct seccomp_notif *req, int listener, int *clos
             return -1;
         }
     }
-    if (!is_openat2 && !(how.flags & O_CREAT) && (how.flags & O_TMPFILE) != O_TMPFILE)
-        how.mode = 0;
-    /* Enforce magic-link denial during the actual open. */
-    how.resolve |= RESOLVE_NO_MAGICLINKS;
-    /* Prevent a late FIFO from blocking the broker during open. */
-    how.flags |= O_NONBLOCK;
-    *close_exec = !!(how.flags & O_CLOEXEC);
-    umask(mask);
-    int opened = syscall(SYS_openat2, base, translated, &how, sizeof(how));
-    int saved = errno;
-    umask(077);
+    int opened = perform_open(base, translated, &how, is_openat2, mask, close_exec);
     if (base != AT_FDCWD)
         close(base);
-    if (opened < 0) {
-        errno = saved;
+    if (opened < 0)
         return -1;
-    }
-    /* Check the file after opening it, when its true target is known. */
-    if (!valid(listener, req->id) || !check_open(opened)) {
-        close(opened);
-        errno = EACCES;
+    if (verify_opened(listener, req->id, opened, requested_nonblock))
         return -1;
-    }
-    if (!requested_nonblock) {
-        int flags = fcntl(opened, F_GETFL);
-        if (flags < 0 || fcntl(opened, F_SETFL, flags & ~O_NONBLOCK)) {
-            int err = errno;
-            close(opened);
-            errno = err;
-            return -1;
-        }
-    }
     return opened;
 }
 
@@ -404,6 +438,58 @@ static int receive_fd(int sock) {
 }
 
 /* ---- Start the command and handle its requests ---- */
+
+static struct timespec boot_time;
+
+/* Report a fixed sandbox identity instead of the host's. */
+static int emulate_uname(const struct seccomp_notif *req) {
+    struct utsname info = {.sysname = "Linux",
+                           .nodename = "opencode",
+                           .release = "6.1.0-sandbox",
+                           .version = "#1 SMP",
+                           .domainname = "(none)"};
+    strncpy(info.machine, MACHINE, sizeof(info.machine) - 1);
+    if (target_memory(req->pid, req->data.args[0], &info, sizeof(info), 1)) {
+        errno = EFAULT;
+        return -1;
+    }
+    return 0;
+}
+
+/* Report the sandbox memory limit and its own uptime. */
+static int emulate_sysinfo(const struct seccomp_notif *req) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    struct kernel_sysinfo info = {
+        .uptime = now.tv_sec - boot_time.tv_sec,
+        .totalram = memory_bytes,
+        .freeram = memory_bytes,
+        .procs = 1,
+        .mem_unit = 1,
+    };
+    if (target_memory(req->pid, req->data.args[0], &info, sizeof(info), 1)) {
+        errno = EFAULT;
+        return -1;
+    }
+    return 0;
+}
+
+/* Give the checked file to the command. */
+static int install_fd(int listener, uint64_t id, int opened, int close_exec) {
+    struct seccomp_notif_addfd add = {
+        .id = id,
+        .flags = SECCOMP_ADDFD_FLAG_SEND,
+        .srcfd = opened,
+        .newfd_flags = close_exec ? O_CLOEXEC : 0,
+    };
+    int result = ioctl(listener, SECCOMP_IOCTL_NOTIF_ADDFD, &add);
+    int saved = errno;
+    close(opened);
+    if (result >= 0)
+        return 0;
+    errno = saved;
+    return -1;
+}
 
 static volatile sig_atomic_t finished;
 static void child_done(int sig) {
@@ -479,8 +565,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "guard: startup failed\n");
         return 125;
     }
-    struct timespec start;
-    clock_gettime(CLOCK_MONOTONIC, &start);
+    clock_gettime(CLOCK_MONOTONIC, &boot_time);
     int status = 0;
     for (;;) {
         if (finished && waitpid(child, &status, WNOHANG) == child)
@@ -509,52 +594,15 @@ int main(int argc, char **argv) {
         if (!valid(listener, req->id))
             continue;
         if (req->data.nr == (uint32_t)__NR_uname) {
-            /* Report a fixed sandbox identity. */
-            struct utsname info = {.sysname = "Linux",
-                                   .nodename = "opencode",
-                                   .release = "6.1.0-sandbox",
-                                   .version = "#1 SMP",
-                                   .domainname = "(none)"};
-            strncpy(info.machine, MACHINE, sizeof(info.machine) - 1);
-            resp->error = target_memory(req->pid, req->data.args[0], &info,
-                                        sizeof(info), 1)
-                                    ? -EFAULT
-                                    : 0;
+            resp->error = emulate_uname(req) ? -errno : 0;
         } else if (req->data.nr == (uint32_t)__NR_sysinfo) {
-            /* Report the sandbox memory limit and its own uptime. */
-            struct timespec now;
-            clock_gettime(CLOCK_MONOTONIC, &now);
-            struct kernel_sysinfo info = {
-                .uptime = now.tv_sec - start.tv_sec,
-                .totalram = memory_bytes,
-                .freeram = memory_bytes,
-                .procs = 1,
-                .mem_unit = 1,
-            };
-            resp->error = target_memory(req->pid, req->data.args[0], &info,
-                                        sizeof(info), 1)
-                                    ? -EFAULT
-                                    : 0;
+            resp->error = emulate_sysinfo(req) ? -errno : 0;
         } else {
             int close_exec = 0;
             int opened = emulate_open(req, listener, &close_exec);
-            if (opened < 0) {
-                resp->error = -errno;
-            } else {
-                /* Give the checked file to the command. */
-                struct seccomp_notif_addfd add = {
-                    .id = req->id,
-                    .flags = SECCOMP_ADDFD_FLAG_SEND,
-                    .srcfd = opened,
-                    .newfd_flags = close_exec ? O_CLOEXEC : 0,
-                };
-                int result = ioctl(listener, SECCOMP_IOCTL_NOTIF_ADDFD, &add);
-                int saved = errno;
-                close(opened);
-                if (result >= 0)
-                    continue;
-                resp->error = -saved;
-            }
+            if (opened >= 0 && install_fd(listener, req->id, opened, close_exec) == 0)
+                continue;
+            resp->error = -errno;
         }
         if (valid(listener, req->id) &&
             ioctl(listener, SECCOMP_IOCTL_NOTIF_SEND, resp) && errno != ENOENT)
