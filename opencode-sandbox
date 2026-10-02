@@ -135,7 +135,7 @@ if [ -L "$STATE_DIR" ]; then
 	echo "Error: .opencode-sandbox must be a real directory, not a symlink."
 	exit 1
 fi
-if [ ! -d "$PROJECT/.opencode-sandbox" ]; then
+if [ ! -d "$STATE_DIR" ]; then
 	echo "Error: this directory has not been initialized for isolated OpenCode."
 	echo
 	echo "Run:"
@@ -195,6 +195,8 @@ if [ "$GVISOR" -eq 0 ]; then
 		echo "Run 'make' in the launcher source directory, install a package that ships it, or set OPENCODE_GUARD to a trusted guard binary."
 		exit 1
 	fi
+	# Validate the requested path before symlinks change it; the mount loop
+	# checks the resolved path below.
 	case "$GUARD" in
 	*,* | *\"* | *$'\n'* | *$'\r'*)
 		echo "Error: container mount paths cannot contain commas, quotes, or newlines:"

@@ -18,11 +18,6 @@ if [ "$HOME_DIR" = "$PROJECT" ] || { case "$HOME_DIR" in "$PROJECT"/*) true ;; *
 	exit 1
 fi
 
-if [ ! -d "$PROJECT" ]; then
-	echo "Error: current directory is invalid."
-	exit 1
-fi
-
 # Create the private session store
 STATE_DIR="$PROJECT/.opencode-sandbox"
 if [ -L "$STATE_DIR" ]; then
