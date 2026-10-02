@@ -30,3 +30,34 @@ jobs:
           ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
           commit_message: Update AUR package
           ssh_keyscan_types: rsa,ecdsa,ed25519
+
+  aur-bin:
+    # The -bin package installs a release tarball, so it only tracks tags.
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set PKGBUILD version and checksum
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VER}/opencode-sandbox-${VER}.tar.gz"
+          # The Release workflow uploads the asset for this same tag; wait for it.
+          for _ in $(seq 1 30); do
+            curl -fsSL "$URL" -o /tmp/pkg.tar.gz && break
+            sleep 20
+          done
+          [ -s /tmp/pkg.tar.gz ] || { echo "Release asset not found: $URL"; exit 1; }
+          SUM="$(sha256sum /tmp/pkg.tar.gz | cut -d' ' -f1)"
+          sed -i -e "s/^pkgver=.*/pkgver=$VER/" -e "s/^sha256sums=.*/sha256sums=(\"$SUM\")/" packaging/aur-bin/PKGBUILD
+      - name: Publish to AUR
+        uses: KSXGitHub/github-actions-deploy-aur@v4.2.0
+        with:
+          pkgname: opencode-sandbox-bin
+          pkgbuild: packaging/aur-bin/PKGBUILD
+          commit_username: ${{ secrets.AUR_COMMIT_USERNAME }}
+          commit_email: ${{ secrets.AUR_COMMIT_EMAIL }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: Update AUR package
+          ssh_keyscan_types: rsa,ecdsa,ed25519

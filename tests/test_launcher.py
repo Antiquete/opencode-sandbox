@@ -349,6 +349,32 @@ class LauncherTests(unittest.TestCase):
         )
         self.assertIn(f"src={default_guard},", guard_mount)
 
+    def test_packaged_guard_is_used_when_the_source_build_is_missing(self):
+        install = self.base / "install-packaged"
+        install.mkdir()
+        launcher = install / "opencode-sandbox"
+        shutil.copy(ROOT / "opencode-sandbox", launcher)
+        packaged = self.base / "packaged-guard"
+        packaged.mkdir()
+        packaged_guard = packaged / "guard"
+        shutil.copy(self.guard, packaged_guard)
+        self.log.write_text("")
+        result = self.launch(
+            launcher=launcher,
+            env_extra={"OPENCODE_GUARD": "", "OPENCODE_GUARD_DIR": str(packaged)},
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        runs = [
+            call
+            for call in map(json.loads, self.log.read_text().splitlines())
+            if call and call[0] == "run"
+        ]
+        self.assertEqual(len(runs), 1)
+        guard_mount = next(
+            m for m in self.mounts(runs[0]) if "dst=/opt/opencode-sandbox/guard," in m
+        )
+        self.assertIn(f"src={packaged_guard},", guard_mount)
+
     def test_missing_or_non_executable_guard_fails_closed(self):
         missing = self.launch_without_run(
             env_extra={"OPENCODE_GUARD": str(self.base / "absent")}

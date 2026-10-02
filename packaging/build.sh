@@ -25,22 +25,36 @@ MAINTAINER="${MAINTAINER:-$GIT_NAME ${MAINTAINER_EMAIL:-$GIT_EMAIL}}"
 
 DIST="$ROOT/dist"
 PKG=/tmp/opencode-sandbox
-rm -rf "$DIST" "$PKG"
-mkdir -p "$DIST" "$PKG/usr/bin"
 
-install -m 0755 opencode-sandbox "$PKG/usr/bin/"
-install -m 0755 opencode-project-init "$PKG/usr/bin/"
+# Stage the launcher and init scripts for the binary packages.
+stage_binaries() {
+	mkdir -p "$PKG/usr/bin"
+	install -m 0755 opencode-sandbox "$PKG/usr/bin/"
+	install -m 0755 opencode-project-init "$PKG/usr/bin/"
+}
 
-echo "== source tarball =="
-mkdir -p "$PKG/opencode-sandbox-$VER"
-cp opencode-sandbox opencode-project-init README.md LICENSE "$PKG/opencode-sandbox-$VER/"
-tar -czf "$DIST/opencode-sandbox-$VER.tar.gz" -C "$PKG" opencode-sandbox-$VER
+# Build the static seccomp guard and stage it for the binary packages.
+build_guard() {
+	echo "== guard binary =="
+	make
+	install -D -m 0755 build/opencode-guard "$PKG/usr/lib/opencode-sandbox/guard"
+}
 
-echo "== .deb =="
-DEB=/tmp/deb
-mkdir -p "$DEB/DEBIAN" "$DEB/usr/bin"
-cp "$PKG/usr/bin"/* "$DEB/usr/bin/"
-cat >"$DEB/DEBIAN/control" <<EOF
+build_tarball() {
+	echo "== source tarball =="
+	mkdir -p "$PKG/opencode-sandbox-$VER/sandbox"
+	cp opencode-sandbox opencode-project-init README.md LICENSE Makefile build/opencode-guard "$PKG/opencode-sandbox-$VER/"
+	cp sandbox/guard.c "$PKG/opencode-sandbox-$VER/sandbox/"
+	tar -czf "$DIST/opencode-sandbox-$VER.tar.gz" -C "$PKG" opencode-sandbox-$VER
+}
+
+build_deb() {
+	echo "== .deb =="
+	DEB=/tmp/deb
+	mkdir -p "$DEB/DEBIAN" "$DEB/usr/bin" "$DEB/usr/lib/opencode-sandbox"
+	cp "$PKG/usr/bin"/* "$DEB/usr/bin/"
+	cp "$PKG/usr/lib/opencode-sandbox/guard" "$DEB/usr/lib/opencode-sandbox/guard"
+	cat >"$DEB/DEBIAN/control" <<EOF
 Package: opencode-sandbox
 Version: $VER
 Section: utils
@@ -52,13 +66,15 @@ Description: Run OpenCode inside an isolated Docker sandbox
  Runs opencode.ai in a locked-down Docker container with access
  limited to the current project.
 EOF
-dpkg-deb -b --root-owner-group "$DEB" "$DIST/opencode-sandbox_${VER}_all.deb"
+	dpkg-deb -b --root-owner-group "$DEB" "$DIST/opencode-sandbox_${VER}_all.deb"
+}
 
-echo "== .rpm =="
-RPM=/tmp/rpmbuild
-mkdir -p "$RPM/SPECS" "$RPM/SOURCES"
-cp opencode-sandbox opencode-project-init "$RPM/SOURCES/"
-cat >"$RPM/SPECS/opencode-sandbox.spec" <<EOF
+build_rpm() {
+	echo "== .rpm =="
+	RPM=/tmp/rpmbuild
+	mkdir -p "$RPM/SPECS" "$RPM/SOURCES"
+	cp opencode-sandbox opencode-project-init build/opencode-guard "$RPM/SOURCES/"
+	cat >"$RPM/SPECS/opencode-sandbox.spec" <<EOF
 Name: opencode-sandbox
 Version: $VER
 Release: 1
@@ -76,21 +92,27 @@ limited to the current project.
 
 %install
 install -d %{buildroot}/usr/bin
+install -d %{buildroot}/usr/lib/opencode-sandbox
 install -m 0755 %{_sourcedir}/opencode-sandbox %{buildroot}/usr/bin/
 install -m 0755 %{_sourcedir}/opencode-project-init %{buildroot}/usr/bin/
+install -m 0755 %{_sourcedir}/opencode-guard %{buildroot}/usr/lib/opencode-sandbox/guard
 
 %files
 /usr/bin/opencode-sandbox
 /usr/bin/opencode-project-init
+/usr/lib/opencode-sandbox/guard
 EOF
-rpmbuild -bb --define "_topdir $RPM" "$RPM/SPECS/opencode-sandbox.spec" >/dev/null
-cp "$RPM"/RPMS/noarch/*.rpm "$DIST/"
+	rpmbuild -bb --define "_topdir $RPM" "$RPM/SPECS/opencode-sandbox.spec" >/dev/null
+	cp "$RPM"/RPMS/noarch/*.rpm "$DIST/"
+}
 
-echo "== .pkg.tar.zst (Arch) =="
-ARC=/tmp/arch
-mkdir -p "$ARC/usr/bin"
-cp "$PKG/usr/bin"/* "$ARC/usr/bin/"
-cat >"$ARC/.PKGINFO" <<EOF
+build_arch() {
+	echo "== .pkg.tar.zst (Arch) =="
+	ARC=/tmp/arch
+	mkdir -p "$ARC/usr/bin" "$ARC/usr/lib/opencode-sandbox"
+	cp "$PKG/usr/bin"/* "$ARC/usr/bin/"
+	cp "$PKG/usr/lib/opencode-sandbox/guard" "$ARC/usr/lib/opencode-sandbox/guard"
+	cat >"$ARC/.PKGINFO" <<EOF
 pkgname = opencode-sandbox
 pkgver = $VER
 pkgdesc = Run OpenCode inside an isolated Docker sandbox
@@ -103,14 +125,16 @@ license = GPL-3.0-or-later
 depend = bash
 depend = docker
 EOF
-(
-	cd "$ARC"
-	bsdtar -cf .MTREE --format=mtree --options='!all,use-set,type,uid,gid,mode,time,size,md5,sha256' .PKGINFO usr
-	tar --zstd -cf "$DIST/opencode-sandbox-${VER}-1-any.pkg.tar.zst" .PKGINFO .MTREE usr
-)
+	(
+		cd "$ARC"
+		bsdtar -cf .MTREE --format=mtree --options='!all,use-set,type,uid,gid,mode,time,size,md5,sha256' .PKGINFO usr
+		tar --zstd -cf "$DIST/opencode-sandbox-${VER}-1-any.pkg.tar.zst" .PKGINFO .MTREE usr
+	)
+}
 
-echo "== ebuild (Gentoo) =="
-cat >"$DIST/opencode-sandbox-${VER}.ebuild" <<EOF
+build_gentoo() {
+	echo "== ebuild (Gentoo) =="
+	cat >"$DIST/opencode-sandbox-${VER}.ebuild" <<EOF
 EAPI=8
 
 DESCRIPTION="Run OpenCode inside an isolated Docker sandbox"
@@ -126,8 +150,21 @@ RDEPEND="app-shells/bash virtual/docker"
 
 src_install() {
     dobin opencode-sandbox opencode-project-init
+    exeinto /usr/lib/opencode-sandbox
+    doexe build/opencode-guard
 }
 EOF
+}
+
+rm -rf "$DIST" "$PKG"
+mkdir -p "$DIST"
+stage_binaries
+build_guard
+build_tarball
+build_deb
+build_rpm
+build_arch
+build_gentoo
 
 echo
 ls -la "$DIST"

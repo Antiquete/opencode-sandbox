@@ -6,11 +6,26 @@ PROJECT="$(cd -P "$PWD" && pwd)"
 HOME_DIR="$(cd -P "$HOME" && pwd)"
 SCRIPT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
 
+# Helpers ---------------------------------------------------------------------
+
+# True when a path is another path or lives inside it.
+within() {
+	[ "$1" = "$2" ] || [[ "$1" == "$2/"* ]]
+}
+
+# Explain the gVisor requirement and stop.
+gvisor_requires_docker() {
+	echo "Error: --gvisor requires Docker (runsc is registered as a Docker runtime)."
+	echo "Install gVisor and add runsc to /etc/docker/daemon.json, then run without --runtime podman."
+	exit 1
+}
+
 # Configure defaults and parse launcher options
 IMAGE="${OPENCODE_IMAGE:-ghcr.io/anomalyco/opencode:latest}"
 RUNTIME="${OPENCODE_RUNTIME:-auto}"
 GVISOR="${OPENCODE_GVISOR:-0}"
-GUARD="${OPENCODE_GUARD:-$SCRIPT_DIR/build/opencode-guard}"
+GUARD="${OPENCODE_GUARD:-}"
+GUARD_DIR="${OPENCODE_GUARD_DIR:-/usr/lib/opencode-sandbox}"
 STATE_DIR="$PROJECT/.opencode-sandbox"
 CONFIG_DIR="${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}"
 MEM_LIMIT="${OPENCODE_MEMORY:-4g}"
@@ -75,7 +90,7 @@ while [ "$#" -gt 0 ]; do
 	esac
 done
 
-# Validate settings and trusted mount sources
+# Validate environment settings
 case "$GVISOR" in
 0 | 1) ;;
 *)
@@ -104,11 +119,12 @@ if [[ ! "$DNS_SERVER" =~ ^[0-9a-fA-F:.]+$ ]]; then
 	exit 1
 fi
 
+# Validate the project and its state store
 if [ "$PROJECT" = "/" ]; then
 	echo "Error: refusing to run OpenCode at the filesystem root."
 	exit 1
 fi
-if [ "$HOME_DIR" = "$PROJECT" ] || { case "$HOME_DIR" in "$PROJECT"/*) true ;; *) false ;; esac } then
+if within "$HOME_DIR" "$PROJECT"; then
 	echo "Error: refusing to run OpenCode here:"
 	echo "  $PROJECT"
 	echo "It contains your home directory ($HOME_DIR), which would be exposed"
@@ -145,7 +161,8 @@ case "$RESOLVED_STATE" in
 esac
 STATE_DIR="$RESOLVED_STATE"
 
-if [ "$SCRIPT_DIR" = "$PROJECT" ] || [[ "$SCRIPT_DIR" == "$PROJECT/"* ]]; then
+# Validate the launcher installation and shared config directory
+if within "$SCRIPT_DIR" "$PROJECT"; then
 	echo "Error: the launcher installation must be outside the writable project."
 	exit 1
 fi
@@ -159,15 +176,23 @@ esac
 mkdir -p -- "$CONFIG_DIR"
 CONFIG_DIR="$(cd -P -- "$CONFIG_DIR" && pwd)"
 # Prevent config mounts from exposing the writable workspace
-if [ "$CONFIG_DIR" = "$PROJECT" ] || [[ "$CONFIG_DIR" == "$PROJECT/"* ]] || [[ "$PROJECT" == "$CONFIG_DIR/"* ]] || [ "$CONFIG_DIR" = / ]; then
+if within "$CONFIG_DIR" "$PROJECT" || within "$PROJECT" "$CONFIG_DIR" || [ "$CONFIG_DIR" = / ]; then
 	echo "Error: shared config and project directories must not overlap."
 	exit 1
 fi
 
+# Validate the guard binary
 if [ "$GVISOR" -eq 0 ]; then
+	if [ -z "$GUARD" ]; then
+		GUARD="$SCRIPT_DIR/build/opencode-guard"
+		# Packaged installs ship the guard under OPENCODE_GUARD_DIR
+		if [ ! -x "$GUARD" ] && [ -x "$GUARD_DIR/guard" ]; then
+			GUARD="$GUARD_DIR/guard"
+		fi
+	fi
 	if [ ! -f "$GUARD" ] || [ ! -x "$GUARD" ]; then
 		echo "Error: the sandbox guard is missing or not executable."
-		echo "Run 'make' in the launcher source directory or set OPENCODE_GUARD to a trusted guard binary."
+		echo "Run 'make' in the launcher source directory, install a package that ships it, or set OPENCODE_GUARD to a trusted guard binary."
 		exit 1
 	fi
 	case "$GUARD" in
@@ -188,17 +213,17 @@ if [ "$GVISOR" -eq 0 ]; then
 		exit 1
 	fi
 	GUARD="$RESOLVED_GUARD"
-	if [ "$GUARD" = "$PROJECT" ] || [[ "$GUARD" == "$PROJECT/"* ]]; then
+	if within "$GUARD" "$PROJECT"; then
 		echo "Error: the sandbox guard must not be inside the writable project."
 		exit 1
 	fi
-	if [ "$CONFIG_MODE" = rw ] &&
-		{ [ "$GUARD" = "$CONFIG_DIR" ] || [[ "$GUARD" == "$CONFIG_DIR/"* ]]; }; then
+	if [ "$CONFIG_MODE" = rw ] && within "$GUARD" "$CONFIG_DIR"; then
 		echo "Error: the sandbox guard must not be inside writable shared config."
 		exit 1
 	fi
 fi
 
+# Reject mount sources that would leak host files or IPC
 MOUNT_PATHS=("$PROJECT" "$STATE_DIR" "$CONFIG_DIR")
 if [ "$GVISOR" -eq 0 ]; then
 	MOUNT_PATHS+=("$GUARD")
@@ -232,11 +257,6 @@ DOCKER_INFO_FORMAT='{{json .SecurityOptions}}'
 if [ "$GVISOR" -eq 1 ]; then
 	DOCKER_INFO_FORMAT="{{json .SecurityOptions}}{{println \"runtimes\"}}{{range \$name, \$runtime := .Runtimes}}{{println \$name}}{{end}}"
 fi
-gvisor_requires_docker() {
-	echo "Error: --gvisor requires Docker (runsc is registered as a Docker runtime)."
-	echo "Install gVisor and add runsc to /etc/docker/daemon.json, then run without --runtime podman."
-	exit 1
-}
 case "$RUNTIME" in
 docker)
 	if ! command -v docker >/dev/null 2>&1; then
@@ -402,6 +422,7 @@ y | Y | yes | Yes | YES)
 	;;
 esac
 
+# Name the container after the project path
 PROJ_SLUG="$(printf '%s' "$PROJ_NAME" |
 	tr -cs '[:alnum:]' '-' |
 	sed 's/^-//;s/-$//' |

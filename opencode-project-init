@@ -5,6 +5,7 @@ umask 077
 PROJECT="$(cd -P "$PWD" && pwd)"
 HOME_DIR="$(cd -P "$HOME" && pwd)"
 
+# Refuse locations that would expose the home directory
 if [ "$PROJECT" = "/" ]; then
 	echo "Error: refusing to initialize OpenCode at the filesystem root."
 	exit 1
@@ -22,6 +23,7 @@ if [ ! -d "$PROJECT" ]; then
 	exit 1
 fi
 
+# Create the private session store
 STATE_DIR="$PROJECT/.opencode-sandbox"
 if [ -L "$STATE_DIR" ]; then
 	echo "Error: $STATE_DIR must be a real directory, not a symlink."
@@ -37,6 +39,7 @@ if [ ! -e "$STATE_DIR" ]; then
 	chmod 0700 -- "$STATE_DIR"
 fi
 
+# Register the store in .gitignore
 IGNORE_ENTRY='.opencode-sandbox/'
 GITIGNORE_STATUS="skipped (not a git repo)"
 if [ -e "$PROJECT/.git" ]; then
@@ -71,6 +74,7 @@ if [ -e "$PROJECT/.git" ]; then
 	fi
 fi
 
+# Show the result
 B=
 DIM=
 GRN=
