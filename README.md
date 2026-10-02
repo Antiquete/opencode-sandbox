@@ -17,15 +17,17 @@ Session remains preserved, start where you left off. Only the container resets, 
 
 ## Requirements
 
-- **docker** or **podman** CLI with a running daemon
+- **bash** and a **docker** or **podman** CLI with a running daemon
 - **gVisor** (optional) — only needed for `--gvisor`; install `runsc` and register it as a Docker runtime
+- **cc and make** (optional) — only to build the seccomp guard from source or run `make test` (with `python3`); packages ship a prebuilt guard
 
 ## Installing
 
 ### AUR (Arch)
 
 ```sh
-yay -S opencode-sandbox-git
+yay -S opencode-sandbox-git   # built from git, guard compiled on install
+yay -S opencode-sandbox-bin   # release tarball with the prebuilt guard
 ```
 
 ### Direct install
@@ -45,8 +47,16 @@ sudo emerge opencode-sandbox
 
 ```sh
 tar -xzf opencode-sandbox-*.tar.gz
-cp opencode-sandbox-*/{opencode-sandbox,opencode-project-init} ~/.local/bin
+cd opencode-sandbox-*/
+mkdir -p ~/.local/bin/build
+cp opencode-sandbox opencode-project-init ~/.local/bin/
+cp build/opencode-guard ~/.local/bin/build/
 ```
+
+The launcher expects the guard at `build/opencode-guard` next to itself, or at
+the packaged location `/usr/lib/opencode-sandbox/guard`; `OPENCODE_GUARD`
+points at any other trusted binary. To rebuild the guard, run `make` (needs
+`cc`).
 
 ## Usage
 
@@ -72,7 +82,7 @@ opencode-sandbox --continue
 | `--offline`               | Skip the image pull (`--pull never`); use whatever image is already present. Useful on offline/unreliable networks.                                                                                                                                                                                                                 |
 | `--no-network`            | Run with no network: the container gets `--network none`, with no bridge and no external connectivity. Pair with `--offline` for a fully offline local session. The network is not auto-created.                                                                                                                                     |
 | `--runtime <name>`        | Force a container runtime: `docker`, `podman`, or `auto` (default). `auto` uses whichever is installed and running.                                                                                                                                                                                                                 |
-| `--gvisor`                | Run under gVisor's `runsc` sandboxing runtime instead of the default `runc` (Docker only; requires the `runsc` runtime registered in `/etc/docker/daemon.json`). `runsc` runs the container in a userspace kernel, so host `/proc` and `/sys` surfaces are emulated, not exposed.                                                     |
+| `--gvisor`                | Run under gVisor's `runsc` sandboxing runtime instead of the default `runc` (Docker only; requires the `runsc` runtime registered in `/etc/docker/daemon.json`). `runsc` runs the container in a userspace kernel, so host `/proc` and `/sys` surfaces are emulated, not exposed. The seccomp guard is skipped — runsc is the boundary. |
 | `--docker-network <name>` | Attach the container to a named network (created automatically if it doesn't exist; requires permission to create networks). Defaults to the runtime's default network. Useful for reaching a provider on another container (e.g. a local LLM server on `local-ai-net`), or `host` to reach services bound to the host's `localhost`. |
 | `--config-rw`            | Mount the shared config `~/.config/opencode` read-write instead of read-only. Needed to sign in or edit config from inside the sandbox. The host config changes persist. |
 | anything else             | Forwarded to OpenCode, e.g. `--model`, `--continue`, `run`, `--help`.                                                                                                                                                                                                                                                              |
@@ -91,6 +101,12 @@ Custom image:
 OPENCODE_IMAGE=ghcr.io/anomalyco/opencode:0.9.4 opencode-sandbox
 ```
 
+Other environment overrides: `OPENCODE_RUNTIME` (`docker`, `podman`, or `auto`),
+`OPENCODE_GVISOR` (`0` or `1`), `OPENCODE_GUARD` (trusted guard binary path),
+`OPENCODE_GUARD_DIR` (packaged guard directory, default
+`/usr/lib/opencode-sandbox`), `OPENCODE_CONFIG_DIR`, `OPENCODE_MEMORY`,
+`OPENCODE_CPUS`, `OPENCODE_PIDS`, and `OPENCODE_DNS`.
+
 ## Security Model
 
 The container is launched with:
@@ -103,6 +119,22 @@ The container is launched with:
   project tree so the agent can't poke at it as project content
 - Shared config at `~/.config/opencode` (read-only by default; opt into
   read/write with `--config-rw`)
+
+A seccomp guard (a small static binary) runs as the container entrypoint.
+Every `open`, `openat`, `openat2`, and `creat` the agent attempts is
+intercepted; the guard performs the open itself, verifies what was actually
+opened, and hands the checked descriptor over via a kernel notification.
+Opens that resolve to procfs, sysfs, or cgroup filesystems are denied,
+including symlink and magic-link aliases. `uname` and `sysinfo` report
+sandbox numbers instead of the host's: a fixed hostname, a synthetic kernel
+version, sandbox uptime, and the configured memory limit. The guard also
+denies the syscalls that could escape the container: ptrace, process-memory
+access, file-handle opens, mount and namespace changes, io_uring, BPF, and
+installing replacement seccomp filters. This closes the Docker `/proc` gaps
+that path-based masking cannot. Metadata-only syscalls such as `stat` and
+`readlink` are not mediated; denying them globally breaks OpenCode's startup.
+With `--gvisor`, the guard is skipped because the userspace kernel provides
+its own boundary.
 
 Under a rootful daemon the container runs as the host user (its UID/GID are
 mapped with `--user`, and `/root` is masked with a writable tmpfs), so session
@@ -222,29 +254,29 @@ runtime would violate the sandbox contract.
     </tr>
     <tr>
       <td><code>/proc/cmdline</code></td>
-      <td align="center">Docker limitation ✘</td>
+      <td align="center">Open denied (guard) ✔</td>
       <td align="center">Blocked (masked path) ✔</td>
       <td align="center">Emulated ✔</td>
       <td>Kernel boot options (root disk, LUKS UUIDs, security)</td>
     </tr>
     <tr>
       <td><code>/proc/cpuinfo</code></td>
-      <td align="center">Docker limitation ✘</td>
+      <td align="center">Open denied (guard) ✔</td>
       <td align="center">Blocked (masked path) ✔</td>
       <td align="center">Emulated ✔</td>
       <td>CPU model and core count</td>
     </tr>
     <tr>
       <td><code>/proc/meminfo</code></td>
-      <td align="center">Docker limitation ✘</td>
+      <td align="center">Open denied (guard) ✔</td>
       <td align="center">Blocked (masked path) ✔</td>
       <td align="center">Emulated ✔</td>
       <td>Host memory (total, swap)</td>
     </tr>
     <tr>
       <td><code>/proc/self/mountinfo</code></td>
-      <td align="center">Docker limitation ✘</td>
-      <td align="center">Podman limitation ✘</td>
+      <td align="center">Open denied (guard) ✔</td>
+      <td align="center">Open denied (guard) ✔</td>
       <td align="center">Emulated ✔</td>
       <td>The container's own mounts and their host mapping</td>
     </tr>
@@ -253,19 +285,29 @@ runtime would violate the sandbox contract.
 
 **Legend:** `✔` implemented · `⧗` planned · `✘` Docker/Podman limitation
 
+**Open denied (guard)** — the seccomp guard rejects opens of the path;
+metadata-only syscalls (`stat`, `readlink`) are not mediated, and the guard is
+skipped with `--gvisor`.
+
 ## Planned Features
 
-- **Seccomp guard** — a small static supervisor that intercepts the sandboxed
-  agent's `open(2)` calls and lets through only the project, config, and state
-  paths. Planned to close the remaining host-path and host-metadata leaks
-  (`/proc/self/mountinfo`, `/dev/fd`, kernel boot params) that masks can't fully
-  cover.
 - **Kata VM (`--vm`)** — an optional Kata Containers (QEMU-backed) runtime that
   runs the session in its own virtual machine, so host firmware and kernel
   surfaces are emulated rather than exposed. Requires `/dev/kvm` and a Kata
   runtime registered with the container daemon.
 
 ## Development
+
+`make` builds the seccomp guard into `build/opencode-guard`, and `make test`
+builds it and runs the Python suite (`python3 -B -m unittest discover -s
+tests -v`):
+
+- `tests/test_launcher.py` — runs the launcher against fake `docker`/`podman`
+  binaries (no daemon needed) and asserts the exact container flags, mounts,
+  and refusal paths.
+- `tests/test_guard.py` — runs the built guard on the host kernel: procfs and
+  sysfs opens are denied, ordinary I/O and child processes still work, and
+  `uname`/`sysinfo` are synthetic.
 
 Shell scripts (`opencode-sandbox`, `opencode-project-init`, `packaging/build.sh`)
 are formatted with [shfmt](https://github.com/mvdan/sh). Enable the committed
