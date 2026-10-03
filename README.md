@@ -153,10 +153,8 @@ network stack — whether via the user's own `--docker-network host` flag or any
 host-driver bridge the user supplied. `--no-network` disables networking
 entirely (`--network none`), for fully offline sessions.
 
-The agent is also pinned to the CPUs its quota implies, so tools that report
-core counts (`nproc`, `/proc/cpuinfo`, `Cpus_allowed`) show the sandbox size
-instead of your host's hardware. Project and config are mounted non-recursively
-with private propagation, so nested mounts on your host don't leak in.
+Project and config are mounted non-recursively with private propagation, so
+nested mounts on your host don't leak in.
 
 The container uses a fixed hostname (`opencode`) and fresh resolver/hosts files
 instead of the host's, so nothing identifies your machine. DNS defaults to

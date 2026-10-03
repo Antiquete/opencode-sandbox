@@ -493,15 +493,6 @@ if [ "$GVISOR" -eq 1 ]; then
 	RUN_OPTS+=(--runtime runsc)
 fi
 
-# Pin CPUs so affinity reports the sandbox quota instead of host capacity
-CPU_INT="${CPUS_LIMIT%%.*}"
-CPU_FRAC="${CPUS_LIMIT#*.}"
-CPU_N="$CPU_INT"
-if [ "$CPU_FRAC" != "$CPUS_LIMIT" ] && [[ "$CPU_FRAC" == *[1-9]* ]]; then
-	CPU_N=$((CPU_INT + 1))
-fi
-CPUSET_CPUS="0-$((CPU_N - 1))"
-
 # Docker rejects a bare rw field; read-write is the bind default.
 CONFIG_MOUNT_MODE="$CONFIG_MODE"
 [ "$CONFIG_MOUNT_MODE" = rw ] && CONFIG_MOUNT_MODE=""
@@ -581,8 +572,6 @@ fi
 	--memory-swap "$MEM_LIMIT" \
 	--ulimit core=0 \
 	--cpus "$CPUS_LIMIT" \
-	--cpuset-cpus "$CPUSET_CPUS" \
-	--cpuset-mems 0 \
 	"${GUARD_OPTS[@]}" \
 	"${MOUNT_OPTS[@]}" \
 	--workdir /workspace \

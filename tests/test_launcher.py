@@ -554,8 +554,6 @@ class LauncherTests(unittest.TestCase):
 
     def test_cpu_and_memory_limits_remain_configurable(self):
         args = self.run_args()
-        self.assertEqual(args[args.index("--cpuset-cpus") + 1], "0-1")
-        self.assertEqual(args[args.index("--cpuset-mems") + 1], "0")
         args = self.run_args(
             env_extra={
                 "OPENCODE_MEMORY": "8g",
@@ -569,11 +567,9 @@ class LauncherTests(unittest.TestCase):
         self.assertIn("OPENCODE_GUARD_MEMORY=8g", envs)
         self.assertNotIn("OPENCODE_GUARD_MEMORY=1g", envs)
         self.assertEqual(args[args.index("--cpus") + 1], "4")
-        self.assertEqual(args[args.index("--cpuset-cpus") + 1], "0-3")
+        self.assertNotIn("--cpuset-cpus", args)
         args = self.run_args(env_extra={"OPENCODE_CPUS": "1.5"})
-        self.assertEqual(args[args.index("--cpuset-cpus") + 1], "0-1")
-        args = self.run_args(env_extra={"OPENCODE_CPUS": "1"})
-        self.assertEqual(args[args.index("--cpuset-cpus") + 1], "0-0")
+        self.assertEqual(args[args.index("--cpus") + 1], "1.5")
         self.assertNotEqual(
             self.launch(env_extra={"OPENCODE_MEMORY": "plenty"}).returncode, 0
         )
