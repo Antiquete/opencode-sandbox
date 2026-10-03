@@ -42,8 +42,9 @@ build_guard() {
 
 build_tarball() {
 	echo "== source tarball =="
-	mkdir -p "$PKG/opencode-sandbox-$VER/sandbox"
-	cp opencode-sandbox opencode-project-init README.md LICENSE Makefile build/opencode-guard "$PKG/opencode-sandbox-$VER/"
+	mkdir -p "$PKG/opencode-sandbox-$VER/build" "$PKG/opencode-sandbox-$VER/sandbox"
+	cp opencode-sandbox opencode-project-init README.md LICENSE Makefile "$PKG/opencode-sandbox-$VER/"
+	cp build/opencode-guard "$PKG/opencode-sandbox-$VER/build/"
 	cp sandbox/guard.c "$PKG/opencode-sandbox-$VER/sandbox/"
 	tar -czf "$DIST/opencode-sandbox-$VER.tar.gz" -C "$PKG" opencode-sandbox-$VER
 }
