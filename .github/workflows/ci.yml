@@ -33,8 +33,8 @@ jobs:
       - name: Assert artifacts and tarball layout
         run: |
           test -f dist/opencode-sandbox-0.0.0.tar.gz
-          test -f dist/opencode-sandbox_0.0.0_all.deb
-          test -f dist/opencode-sandbox-0.0.0-1.noarch.rpm
+          test -f dist/opencode-sandbox_0.0.0_amd64.deb
+          test -f dist/opencode-sandbox-0.0.0-1.x86_64.rpm
           test -f dist/opencode-sandbox-0.0.0-1-any.pkg.tar.zst
           test -f dist/opencode-sandbox-0.0.0.ebuild
           tar -tzf dist/opencode-sandbox-0.0.0.tar.gz | grep -qx "opencode-sandbox-0.0.0/build/opencode-guard"

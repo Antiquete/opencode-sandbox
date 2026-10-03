@@ -34,9 +34,9 @@ yay -S opencode-sandbox-bin   # release tarball with the prebuilt guard
 
 ```sh
 # Debian / Ubuntu
-sudo apt install ./opencode-sandbox_*_all.deb
+sudo apt install ./opencode-sandbox_*_amd64.deb
 # Fedora
-sudo dnf install ./opencode-sandbox-*.noarch.rpm
+sudo dnf install ./opencode-sandbox-*.rpm
 # Arch
 sudo pacman -U ./opencode-sandbox-*-any.pkg.tar.zst
 # Gentoo

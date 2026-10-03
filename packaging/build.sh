@@ -25,6 +25,13 @@ MAINTAINER="${MAINTAINER:-$GIT_NAME ${MAINTAINER_EMAIL:-$GIT_EMAIL}}"
 
 DIST="$ROOT/dist"
 PKG=/tmp/opencode-sandbox
+# The guard binary is arch-specific, so the packages are too.
+HOST_ARCH="$(uname -m)"
+case "$HOST_ARCH" in
+x86_64) DEB_ARCH=amd64 ;;
+aarch64) DEB_ARCH=arm64 ;;
+*) DEB_ARCH="$HOST_ARCH" ;;
+esac
 
 # Stage the launcher and init scripts for the binary packages.
 stage_binaries() {
@@ -60,14 +67,14 @@ Package: opencode-sandbox
 Version: $VER
 Section: utils
 Priority: optional
-Architecture: all
+Architecture: $DEB_ARCH
 Depends: bash, docker-ce
 Maintainer: $MAINTAINER
 Description: Run OpenCode inside an isolated Docker sandbox
  Runs opencode.ai in a locked-down Docker container with access
  limited to the current project.
 EOF
-	dpkg-deb -b --root-owner-group "$DEB" "$DIST/opencode-sandbox_${VER}_all.deb"
+	dpkg-deb -b --root-owner-group "$DEB" "$DIST/opencode-sandbox_${VER}_$DEB_ARCH.deb"
 }
 
 build_rpm() {
@@ -82,7 +89,6 @@ Release: 1
 Summary: Run OpenCode inside an isolated Docker sandbox
 License: GPL-3.0-or-later
 URL: $HOMEPAGE
-BuildArch: noarch
 Requires: bash, docker-ce
 
 %define __os_install_post %{nil}
@@ -104,7 +110,7 @@ install -m 0755 %{_sourcedir}/opencode-guard %{buildroot}/usr/lib/opencode-sandb
 /usr/lib/opencode-sandbox/guard
 EOF
 	rpmbuild -bb --define "_topdir $RPM" "$RPM/SPECS/opencode-sandbox.spec" >/dev/null
-	cp "$RPM"/RPMS/noarch/*.rpm "$DIST/"
+	cp "$RPM"/RPMS/*/*.rpm "$DIST/"
 }
 
 build_arch() {
