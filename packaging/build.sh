@@ -15,7 +15,7 @@ HOMEPAGE="${REPO_URL%.git}"
 case "$HOMEPAGE" in
 git@*)
 	HOMEPAGE="${HOMEPAGE#git@}"
-	HOMEPAGE="https://${HOMEPAGE/:/\//}"
+	HOMEPAGE="https://${HOMEPAGE/:/\/}"
 	;;
 esac
 GIT_NAME="$(git -C "$ROOT" config user.name 2>/dev/null || true)"
