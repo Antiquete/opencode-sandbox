@@ -502,6 +502,10 @@ if [ "$CPU_FRAC" != "$CPUS_LIMIT" ] && [[ "$CPU_FRAC" == *[1-9]* ]]; then
 fi
 CPUSET_CPUS="0-$((CPU_N - 1))"
 
+# Docker rejects a bare rw field; read-write is the bind default.
+CONFIG_MOUNT_MODE="$CONFIG_MODE"
+[ "$CONFIG_MOUNT_MODE" = rw ] && CONFIG_MOUNT_MODE=""
+
 # Build resolver files and bind mounts
 cleanup_launch() {
 	rm -f -- "$LAUNCH_DIR/resolv.conf" "$LAUNCH_DIR/hosts"
@@ -548,7 +552,7 @@ if [ "$CONTAINER_UID" -ne 0 ]; then
 fi
 MOUNT_OPTS+=(
 	--mount "type=bind,src=$STATE_DIR,dst=/root/.local/share/opencode,$NONRECURSIVE,bind-propagation=rprivate"
-	--mount "type=bind,src=$CONFIG_DIR,dst=/root/.config/opencode,$CONFIG_MODE,$NONRECURSIVE,bind-propagation=rprivate"
+	--mount "type=bind,src=$CONFIG_DIR,dst=/root/.config/opencode${CONFIG_MOUNT_MODE:+,$CONFIG_MOUNT_MODE},$NONRECURSIVE,bind-propagation=rprivate"
 	--mount "type=bind,src=$LAUNCH_DIR/resolv.conf,dst=/etc/resolv.conf,readonly"
 	--mount "type=bind,src=$LAUNCH_DIR/hosts,dst=/etc/hosts,readonly"
 )

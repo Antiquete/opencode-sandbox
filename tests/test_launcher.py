@@ -480,7 +480,7 @@ class LauncherTests(unittest.TestCase):
             m for m in self.mounts(args) if "dst=/root/.config/opencode," in m
         )
         self.assertNotIn("readonly", config)
-        self.assertIn(",rw,", config)
+        self.assertNotIn(",rw,", config)
         state = next(
             m for m in self.mounts(args) if "dst=/root/.local/share/opencode," in m
         )

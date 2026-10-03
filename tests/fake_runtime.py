@@ -34,4 +34,14 @@ elif args[:2] == ["network", "inspect"]:
         sys.exit(1)
 if args[:1] == ["run"] and os.environ.get(f"TEST_{runtime}_RUN_FAIL") == "1":
     sys.exit(1)
+if args[:1] == ["run"]:
+    # Validate --mount specs like the real runtimes do: bare fields are
+    # limited to the access/non-recursive flags each runtime accepts.
+    bare = {"DOCKER": {"readonly"}, "PODMAN": {"readonly", "bind-nonrecursive", "notmpcopyup"}}
+    for i, arg in enumerate(args):
+        if arg == "--mount":
+            for field in args[i + 1].split(","):
+                if "=" not in field and field not in bare[runtime]:
+                    sys.stderr.write(f"invalid mount field {field!r}\n")
+                    sys.exit(1)
 sys.exit(0)
