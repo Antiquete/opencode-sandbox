@@ -19,3 +19,22 @@ jobs:
         run: bash -n opencode-sandbox opencode-project-init packaging/build.sh
       - name: Shellcheck
         run: shellcheck -S warning opencode-sandbox opencode-project-init packaging/build.sh
+
+  build-test-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install packaging tools
+        run: sudo apt-get update && sudo apt-get install -y rpm zstd libarchive-tools
+      - name: Build the guard and run the test suite
+        run: make test
+      - name: Smoke-build every package
+        run: VER=0.0.0 packaging/build.sh
+      - name: Assert artifacts and tarball layout
+        run: |
+          test -f dist/opencode-sandbox-0.0.0.tar.gz
+          test -f dist/opencode-sandbox_0.0.0_all.deb
+          test -f dist/opencode-sandbox-0.0.0-1.noarch.rpm
+          test -f dist/opencode-sandbox-0.0.0-1-any.pkg.tar.zst
+          test -f dist/opencode-sandbox-0.0.0.ebuild
+          tar -tzf dist/opencode-sandbox-0.0.0.tar.gz | grep -qx "opencode-sandbox-0.0.0/build/opencode-guard"
