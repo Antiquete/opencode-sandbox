@@ -61,46 +61,58 @@ struct kernel_sysinfo {
 
 static unsigned long memory_bytes = 4UL * 1024 * 1024 * 1024;
 
-/* Parse the launcher's validated memory limit without accepting overflow. */
+/* Parse runtime memory units without accepting overflow. */
 static int parse_memory_limit(void) {
     const char *text = getenv("OPENCODE_GUARD_MEMORY");
     if (!text)
         return 0;
-    if (*text < '1' || *text > '9')
+    if (*text < '0' || *text > '9')
         return -1;
-    unsigned long value = 0;
-    unsigned digits = 0;
-    while (*text >= '0' && *text <= '9') {
-        if (digits == 9)
-            return -1;
-        value = value * 10 + (unsigned)(*text - '0');
-        digits++;
-        text++;
-    }
-    unsigned long multiplier = 1;
-    if (*text) {
-        switch (*text++) {
+    char *end;
+    errno = 0;
+    long double value = strtold(text, &end);
+    if (errno || value < 0)
+        return -1;
+    while (*end == ' ')
+        end++;
+    unsigned power = 0;
+    if (*end && *end != 'b' && *end != 'B') {
+        switch (*end++) {
         case 'k':
         case 'K':
-            multiplier = 1024UL;
+            power = 1;
             break;
         case 'm':
         case 'M':
-            multiplier = 1024UL * 1024;
+            power = 2;
             break;
         case 'g':
         case 'G':
-            multiplier = 1024UL * 1024 * 1024;
+            power = 3;
+            break;
+        case 't':
+        case 'T':
+            power = 4;
+            break;
+        case 'p':
+        case 'P':
+            power = 5;
             break;
         default:
             return -1;
         }
-        if (*text)
-            return -1;
     }
-    if (value > ULONG_MAX / multiplier)
+    if (*end == 'b' || *end == 'B')
+        end++;
+    if (*end)
         return -1;
-    memory_bytes = value * multiplier;
+    while (power) {
+        value *= 1024;
+        power--;
+    }
+    if (value > ULONG_MAX)
+        return -1;
+    memory_bytes = (unsigned long)value;
     return 0;
 }
 

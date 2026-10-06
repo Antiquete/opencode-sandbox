@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 import unittest
 
-from test_launcher import ROOT, make_fake_runtime
+from launcher_fixture import ROOT, make_fake_runtime
 
 
 class RuntimeIdentityTests(unittest.TestCase):

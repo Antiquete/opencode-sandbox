@@ -164,7 +164,7 @@ assert info.uptime < 120
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_sysinfo_uses_configured_guard_memory(self):
-        result = self.guarded('''import ctypes
+        code = '''import ctypes, sys
 class Info(ctypes.Structure):
     _fields_ = [('uptime', ctypes.c_long), ('loads', ctypes.c_ulong * 3),
                 ('totalram', ctypes.c_ulong), ('freeram', ctypes.c_ulong),
@@ -175,14 +175,22 @@ class Info(ctypes.Structure):
                 ('mem_unit', ctypes.c_uint)]
 info = Info()
 assert ctypes.CDLL(None).sysinfo(ctypes.byref(info)) == 0
-assert info.totalram * info.mem_unit == 512 * 1024**2
-''', env_extra={"OPENCODE_GUARD_MEMORY": "512m"})
-        self.assertEqual(result.returncode, 0, result.stderr)
+assert info.totalram * info.mem_unit == int(sys.argv[1])
+'''
+        for memory, expected in (
+            ("512m", 512 * 1024**2), ("1.5GB", 3 * 1024**3 // 2),
+            ("4294967296", 4 * 1024**3), ("1t", 1024**4), ("0", 0),
+        ):
+            with self.subTest(memory=memory):
+                result = self.guarded(code, expected, env_extra={"OPENCODE_GUARD_MEMORY": memory})
+                self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_invalid_guard_memory_fails_startup(self):
-        result = self.guarded("pass", env_extra={"OPENCODE_GUARD_MEMORY": "1gb"})
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("invalid OPENCODE_GUARD_MEMORY", result.stderr)
+        for memory in ("", "1qq", "-1", "1e9999", "18446744073709551616", "99999p"):
+            with self.subTest(memory=memory):
+                result = self.guarded("pass", env_extra={"OPENCODE_GUARD_MEMORY": memory})
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("invalid OPENCODE_GUARD_MEMORY", result.stderr)
 
     def test_open_flags_umask_and_directory_descriptors(self):
         result = self.guarded('''import os, stat

@@ -5,6 +5,15 @@ umask 077
 # --------------------------------------------------------------------------
 # -------------------------------- Helpers ---------------------------------
 # --------------------------------------------------------------------------
+# Show ON/OFF switches or a supplied value.
+status() {
+	case "$2" in
+	1 | always) set -- "$1" ON ;;
+	0 | never) set -- "$1" OFF ;;
+	esac
+	printf '  %s:%s\n' "$1" "$2"
+}
+
 # True when a path is another path or lives inside it.
 within() {
 	[ "$1" = "$2" ] || [[ "$1" == "$2/"* ]]
@@ -42,15 +51,18 @@ has_runsc() {
 		docker info --format '{{range $k, $v := .Runtimes}}{{$k}}{{"\n"}}{{end}}' 2>/dev/null | grep -qx runsc
 }
 
-# Check and resolve path
+# Resolve into the named variable without trimming path contents.
 resolve() {
-	RESOLVED="$(realpath "$1")"
-	if [ -d "$RESOLVED" ] && [ -r "$RESOLVED" ] && [ -x "$RESOLVED" ]; then
-		echo "$RESOLVED"
-		return 0
+	if ! IFS= read -r -d '' "$1" < <(realpath -ze -- "$2") ||
+		[ ! -r "${!1}" ] || [ ! -x "${!1}" ]; then
+		printf 'Error: cannot resolve or access path: %s\n' "$2" >&2
+		exit 1
 	fi
+}
 
-	exit 1
+# Encode the complete source field for the runtimes' CSV mount parser.
+mount_source() {
+	printf '"src=%s"' "${1//\"/\"\"}"
 }
 
 # --------------------------------------------------------------------------
@@ -65,11 +77,16 @@ PULL=always
 CONTAINERIZER=auto
 CONTAINER_OPTS=()
 GUARD=1
-GUARD_FILE=""
+GUARD_BIN=""
 GVISOR=0
 OPENCODE_OPTS=()
 
-CONFIG_MODE=ro
+CONFIG_MODE="readonly"
+MEM_LIMIT=4g
+CPUS_LIMIT=2
+PIDS_LIMIT=1024
+DNS_OPTS=(--dns 1.1.1.1)
+NETWORK=default
 
 while [ "$#" -gt 0 ]; do
 	case "$1" in
@@ -84,6 +101,7 @@ while [ "$#" -gt 0 ]; do
 		;;
 	--no-network)
 		CONTAINER_OPTS+=(--network none)
+		NETWORK=none
 		shift
 		;;
 	--no-guard)
@@ -103,6 +121,13 @@ while [ "$#" -gt 0 ]; do
 		;;
 	--container-*=*)
 		CONTAINER_OPTS+=("--${1#--container-}")
+		case "$1" in
+		--container-memory=*) MEM_LIMIT="${1#*=}" ;;
+		--container-cpus=*) CPUS_LIMIT="${1#*=}" ;;
+		--container-pids-limit=*) PIDS_LIMIT="${1#*=}" ;;
+		--container-dns=*) DNS_OPTS=() ;;
+		--container-network=*) NETWORK="${1#*=}" ;;
+		esac
 		shift
 		;;
 
@@ -114,7 +139,7 @@ while [ "$#" -gt 0 ]; do
 
 	# Guard options
 	--guard=*)
-		GUARD_FILE="${1#*=}"
+		GUARD_BIN="${1#*=}"
 		shift
 		;;
 	*)
@@ -127,11 +152,12 @@ done
 # --------------------------------------------------------------------------
 # ----------------------- Opencode Sandbox Directories ---------------------
 # --------------------------------------------------------------------------
-HOME_DIR=$(resolve "$HOME")
-CONFIG_DIR=$(resolve "$HOME_DIR/.config/opencode")
+resolve HOME_DIR "$HOME"
+mkdir -p "$HOME_DIR/.config/opencode"
+resolve CONFIG_DIR "$HOME_DIR/.config/opencode"
 
 # Project Directory
-PROJECT=$(resolve $(pwd))
+resolve PROJECT .
 # Block /
 if [ "$PROJECT" = "/" ]; then
 	echo "Error: refusing to run OpenCode at the filesystem root."
@@ -156,7 +182,7 @@ if [ ! -d "$STATE_DIR" ]; then
 	echo "  opencode-project-init"
 	exit 1
 fi
-STATE_DIR=$(resolve $STATE_DIR)
+resolve STATE_DIR "$STATE_DIR"
 # --------------------------------------------------------------------------
 
 # --------------------------------------------------------------------------
@@ -197,16 +223,18 @@ fi
 
 # Locate the guard once the runtime decides whether it is needed
 if [[ $GUARD == 1 ]]; then
-	if [ -z "$GUARD_FILE" ]; then
-		GUARD_FILE="$(dirname -- "$(realpath "${BASH_SOURCE[0]}")")/build/opencode-guard"
-		{ [ -f "$GUARD_FILE" ] && [ -x "$GUARD_FILE" ]; } || GUARD_FILE="/usr/lib/opencode-sandbox/guard"
+	if [ -z "$GUARD_BIN" ]; then
+		resolve GUARD_BIN "${BASH_SOURCE[0]}"
+		GUARD_BIN="${GUARD_BIN%/*}/build/opencode-guard"
+		[[ -f $GUARD_BIN && -x $GUARD_BIN ]] || GUARD_BIN="/usr/lib/opencode-sandbox/guard"
 	fi
-	if [ ! -f "$GUARD_FILE" ] || [ ! -x "$GUARD_FILE" ]; then
+	if [[ ! -f $GUARD_BIN || ! -x $GUARD_BIN ]]; then
 		echo "Error: the sandbox guard is missing or not executable."
 		echo "Build it with 'make' next to this launcher, install a package that ships it,"
 		echo "or point at a guard binary with --guard=PATH."
 		exit 1
 	fi
+	resolve GUARD_BIN "$GUARD_BIN"
 fi
 # --------------------------------------------------------------------------
 
@@ -243,7 +271,10 @@ fi
 if rootless "$CONTAINERIZER"; then
 	USER_OPTS=(--env HOME=/root)
 else
+	# /root is mode 700 in the image, so a non-root uid needs a writable HOME
+	# to reach the state and config binds nested underneath it.
 	USER_OPTS=(--user "$(id -u):$(id -g)" --env HOME=/root)
+	MOUNT_OPTS+=(--mount "type=tmpfs,dst=/root,tmpfs-mode=1777$EMPTY_TMPFS")
 fi
 
 # Add mount volumes
@@ -261,23 +292,24 @@ MOUNT_OPTS+=(
 	--mount "type=tmpfs,dst=/sys/fs/pstore,readonly,tmpfs-size=4096$EMPTY_TMPFS"
 
 	# project -> /workspace
-	--mount "type=bind,src=$PROJECT,dst=/workspace,$NONRECURSIVE,bind-propagation=rprivate"
+	--mount "type=bind,$(mount_source "$PROJECT"),dst=/workspace,$NONRECURSIVE,bind-propagation=rprivate"
 
 	# state -> .opencode-sandbox
 	# nothing -> /workspace/.opencode-sandbox
-	--mount "type=bind,src=$STATE_DIR,dst=/root/.local/share/opencode,$NONRECURSIVE,bind-propagation=rprivate"
+	--mount "type=bind,$(mount_source "$STATE_DIR"),dst=/root/.local/share/opencode,$NONRECURSIVE,bind-propagation=rprivate"
 	--mount "type=tmpfs,dst=/workspace/.opencode-sandbox,readonly,tmpfs-size=4096$EMPTY_TMPFS"
 
 	# config -> /root/.config/opencode
-	--mount "type=bind,src=$CONFIG_DIR,dst=/root/.config/opencode,$CONFIG_MODE,$NONRECURSIVE,bind-propagation=rprivate"
+	--mount "type=bind,$(mount_source "$CONFIG_DIR"),dst=/root/.config/opencode,${CONFIG_MODE:+$CONFIG_MODE,}$NONRECURSIVE,bind-propagation=rprivate"
 )
 
 # Add guard
 if [[ $GUARD == 1 ]]; then
 	# guard -> /opt/opencode-sandbox/guard
-	MOUNT_OPTS+=(--mount "type=bind,src=$GUARD_FILE,dst=/opt/opencode-sandbox/guard,readonly")
+	MOUNT_OPTS+=(--mount "type=bind,$(mount_source "$GUARD_BIN"),dst=/opt/opencode-sandbox/guard,readonly")
 	CONTAINER_OPTS+=(--entrypoint /opt/opencode-sandbox/guard)
 	CONTAINER_OPTS+=(--env OPENCODE_SANDBOX=1)
+	OPENCODE_OPTS=(opencode "${OPENCODE_OPTS[@]}")
 fi
 
 CONTAINER_OPTS+=("${USER_OPTS[@]}")
@@ -289,22 +321,16 @@ CONTAINER_OPTS+=("${MOUNT_OPTS[@]}")
 # ---------------------------------- PROMPT --------------------------------
 # --------------------------------------------------------------------------
 # Present the sandbox summary and request consent
-B=
 DIM=
 GRN=
 YEL=
-RED=
 RST=
 if [ -t 0 ] && [ -t 1 ]; then
-	B=$'\033[1m'
 	DIM=$'\033[2m'
 	GRN=$'\033[32m'
 	YEL=$'\033[33m'
-	RED=$'\033[31m'
 	RST=$'\033[0m'
 fi
-
-PROJ_NAME="$(basename "$PROJECT")"
 
 cat <<'LOGO'
 ⠀                                ▄
@@ -313,36 +339,20 @@ cat <<'LOGO'
 ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀  ▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
 
 LOGO
-printf '  %s\n' "${GRN}${B}${PROJ_NAME}${RST}${DIM} - isolated session${RST}"
-printf '  %-17s %s\n' "${B}Project${RST}" "$PROJECT"
-if [ "$GVISOR" -eq 1 ]; then
-	printf '  %-17s %s\n' "${B}Runtime${RST}" "$CONTAINERIZER (gVisor runsc)"
-else
-	printf '  %-17s %s\n' "${B}Runtime${RST}" "$CONTAINERIZER"
-fi
-printf '  %-17s %s\n' "${B}Image pull${RST}" "$PULL"
-if [ -n "${NETWORK:-}" ] && [ "$NETWORK" != "none" ]; then
-	printf '  %-17s %s\n' "${B}Network${RST}" "$NETWORK"
-elif [[ "${CONTAINER_OPTS[*]}" == *"--network none"* ]]; then
-	printf '  %-17s %s\n' "${B}Network${RST}" "none"
-else
-	printf '  %-17s %s\n' "${B}Network${RST}" "default"
-fi
+status Runtime "$CONTAINERIZER"
+status gVisor "$GVISOR"
+status "Image pull" "$PULL"
+[[ $NETWORK == none ]] && status Network 0 || status Network 1
+[[ $NETWORK == none || $NETWORK == default ]] || status "Network request" "$NETWORK"
+status Guard "$GUARD"
+[[ $GUARD == 0 ]] || status "Guard binary" "$GUARD_BIN"
+[[ -z $CONFIG_MODE ]] && status "Edit config" 1 || status "Edit config" 0
 echo
-printf '  %-17s %s\n' "${GRN}read/write${RST}" "everything in $PROJECT"
-printf '  %-17s %s\n' "${YEL}persistent${RST}" "$STATE_DIR"
-if [ "$CONFIG_MODE" = rw ]; then
-	printf '  %-17s %s (read/write)\n' "${YEL}config${RST}" "$CONFIG_DIR"
-else
-	printf '  %-17s %s (read-only)\n' "${YEL}config${RST}" "$CONFIG_DIR"
-fi
+status "${GRN}Project${RST}" "$PROJECT (read/write)"
+status "${YEL}State${RST}" "$STATE_DIR (read/write)"
+status Config "$CONFIG_DIR"
 echo
-printf '  %-17s %s\n' "${RED}blocked${RST}" "other projects, your home dir, ~/.ssh, Docker socket"
-echo
-MEM_LIMIT="${MEM_LIMIT:-4g}"
-CPUS_LIMIT="${CPUS_LIMIT:-2}"
-PIDS_LIMIT="${PIDS_LIMIT:-1024}"
-echo "  ${DIM}Limits: ${MEM_LIMIT} RAM | ${CPUS_LIMIT} CPUs | ${PIDS_LIMIT} processes${RST}"
+status "${DIM}Limits (requested)" "${MEM_LIMIT} RAM | ${CPUS_LIMIT} CPUs | ${PIDS_LIMIT} processes${RST}"
 echo
 printf "Continue? [y/N]: "
 if ! read -r CONFIRM; then
@@ -361,20 +371,20 @@ y | Y | yes | Yes | YES)
 esac
 # --------------------------------------------------------------------------
 
-DNS_SERVER="${DNS_SERVER:-1.1.1.1}"
 "$CONTAINERIZER" run --init --rm \
 	-it \
 	--pull "$PULL" \
 	--hostname opencode \
-	--dns "$DNS_SERVER" \
-	--cpus "$(nproc)" \
+	"${DNS_OPTS[@]}" \
+	--cpus "$CPUS_LIMIT" \
 	--memory "$MEM_LIMIT" \
 	--memory-swap "$MEM_LIMIT" \
 	--pids-limit "$PIDS_LIMIT" \
 	--ulimit core=0 \
 	--ipc private \
 	--cgroupns private \
+	--env "OPENCODE_GUARD_MEMORY=$MEM_LIMIT" \
 	"${CONTAINER_OPTS[@]}" \
 	--workdir /workspace \
 	"$IMAGE" \
-	opencode "${OPENCODE_OPTS[@]}"
+	"${OPENCODE_OPTS[@]}"
