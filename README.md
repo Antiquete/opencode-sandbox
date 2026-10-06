@@ -1,4 +1,4 @@
-# OpenCode Sandbox
+# OPENCODE SANDBOX
 
 [![CI](https://github.com/Antiquete/opencode-sandbox/actions/workflows/ci.yml/badge.svg)](https://github.com/Antiquete/opencode-sandbox/actions/workflows/ci.yml)
 
@@ -15,30 +15,33 @@ All containers share config. No need to redo preferences, agents, skills, mcps, 
 
 Session remains preserved, start where you left off. Only the container resets, not opencode data.
 
-## Requirements
+## REQUIREMENTS
 
-- **bash** and a **docker** or **podman** CLI with a running daemon
-- **gVisor** (optional) — install `runsc` and register it as a Docker runtime
+- **Docker/Podman:** Main container runtime
+- **Bash:** Launcher shell
+- **gVisor (optional):** Kernel separation (`runsc` registered with Docker)
 
-Rootless Docker uses gVisor only with explicit `--gvisor`, with a resource-limit warning.
-The tested runsc version needs `--ignore-cgroups` to start rootlessly; with that
-setting, requested memory, CPU, and PID limits are not enforced. Rootful gVisor
-applies those limits. The launcher does not change daemon configuration.
-- **cc and make** (optional) — only to build the seccomp guard from source or run `make test` (with `python3`); packages ship a prebuilt guard
+#### Development Tools
 
-## Installing
+- **cc:** Compile the seccomp guard
+- **make:** Build the seccomp guard
+- **python3:** Tests
 
-### AUR (Arch)
+## INSTALL
+
+#### Arch AUR
 
 ```sh
-yay -S opencode-sandbox-git   # built from git, guard compiled on install
-yay -S opencode-sandbox-bin   # release tarball with the prebuilt guard
+# Source build
+yay -S opencode-sandbox-git
+# Prebuilt package
+yay -S opencode-sandbox-bin
 ```
 
-### Direct install
+#### Packages
 
 ```sh
-# Debian / Ubuntu
+# Debian/Ubuntu
 sudo apt install ./opencode-sandbox_*_amd64.deb
 # Fedora
 sudo dnf install ./opencode-sandbox-*.rpm
@@ -48,7 +51,7 @@ sudo pacman -U ./opencode-sandbox-*-x86_64.pkg.tar.zst
 sudo emerge opencode-sandbox
 ```
 
-### Manual
+#### Manual
 
 ```sh
 tar -xzf opencode-sandbox-*.tar.gz
@@ -58,283 +61,148 @@ cp opencode-sandbox opencode-project-init ~/.local/bin/
 cp build/opencode-guard ~/.local/bin/build/
 ```
 
-The launcher expects the guard at `build/opencode-guard` next to itself, or at
-the packaged location `/usr/lib/opencode-sandbox/guard`; `OPENCODE_GUARD`
-points at any other trusted binary. To rebuild the guard, run `make` (needs
-`cc`).
+- **Guard lookup:** `build/opencode-guard` beside the launcher, then `/usr/lib/opencode-sandbox/guard`
+- **Custom guard:** `--guard=PATH`
 
-## Usage
-
-`opencode-project-init` - set up a project for sandboxing.
-`opencode-sandbox` - start an isolated OpenCode session in the current project.
+## USAGE
 
 ```sh
 cd ~/code/myproject
-opencode-project-init   # one time, creates the sandbox folder
-opencode-sandbox        # opens the sandbox
-opencode-sandbox --model some-model run "fix the typos in src/"
-opencode-sandbox --continue
+opencode-project-init
+opencode-sandbox
+opencode-sandbox --opencode-model=some-model
 ```
 
-- The `.opencode-sandbox/` folder in your project holds the sandbox session data.
-- Everything after the script name is passed through to OpenCode. Use `--` to
-  forward even arguments that look like sandbox flags.
+- **Terminal:** Interactive session required
 
-## Options
+#### Options
 
-| Flag                      | Description                                                                                                                                                                                                                                                                                                                        |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--offline`               | Skip the image pull (`--pull never`); use whatever image is already present. Useful on offline/unreliable networks.                                                                                                                                                                                                                 |
-| `--no-network`            | Run with no network: the container gets `--network none`, with no bridge and no external connectivity. Pair with `--offline` for a fully offline local session. The network is not auto-created.                                                                                                                                     |
-| `--runtime <name>`        | Force a container runtime: `docker`, `podman`, or `auto` (default). `auto` uses whichever is installed and running.                                                                                                                                                                                                                 |
-| `--gvisor`                | Run under gVisor's `runsc` sandboxing runtime instead of the default `runc` (Docker only; requires the `runsc` runtime registered in `/etc/docker/daemon.json`). `runsc` runs the container in a userspace kernel, so host `/proc` and `/sys` surfaces are emulated, not exposed. The seccomp guard is skipped — runsc is the boundary. |
-| `--docker-network <name>` | Attach the container to a named network (created automatically if it doesn't exist; requires permission to create networks). Defaults to the runtime's default network. Useful for reaching a provider on another container (e.g. a local LLM server on `local-ai-net`), or `host` to reach services bound to the host's `localhost`. |
-| `--config-rw`            | Mount the shared config `~/.config/opencode` read-write instead of read-only. Needed to sign in or edit config from inside the sandbox. The host config changes persist. |
-| anything else             | Forwarded to OpenCode, e.g. `--model`, `--continue`, `run`, `--help`.                                                                                                                                                                                                                                                              |
+| Option | Effect |
+| --- | --- |
+| `--edit-config` | Allow writes to shared host config<br>Default: Read-only |
+| `--no-pull` | Use the cached image<br>Default: Pull always |
+| `--no-network` | Request no network<br>Default: Runtime default |
+| `--no-guard` | Disable the guard<br>Default: Guard enabled unless using gVisor |
+| `--runtime=docker` / `--runtime=podman` | Select the runtime<br>Default: Automatic<br>↳ Rootless: Podman → Docker<br>↳ Rootful: Docker + gVisor → Podman → Docker |
+| `--guard=PATH` | Select the guard; empty uses automatic discovery<br>Default: Automatic discovery |
+| `--gvisor` | Require Docker's registered `runsc` runtime; skip the guard<br>Default: Used with rootful Docker + runsc |
+| `--container-key=value` | Forward `--key=value` to the runtime |
+| `--opencode-key=value` | Forward `--key=value` to OpenCode |
 
-Example with a custom network:
+#### Notes
+
+- **Unrecognized arguments:** Ignored by default. Use `--opencode-` or `--container-` to set options
+
+  ```sh
+  opencode-sandbox --model=provider/model          # Ignored
+  opencode-sandbox --opencode-model=provider/model # Passed to OpenCode
+  ```
+
+- **Container options:** Can change the sandbox's protections without those changes appearing in the confirmation prompt
+
+  ```sh
+  # Gives the container more host access
+  opencode-sandbox --container-privileged=true
+  ```
+
+- **Rootless gVisor:** Add `--gvisor` to use it with rootless Docker; it is not selected automatically.
+  The tested `runsc` needs `--ignore-cgroups` to start rootlessly; with that setting the requested
+  memory, CPU, and PID limits are **not enforced** (a warning is printed). Rootful gVisor applies those limits.
+
+  ```sh
+  opencode-sandbox --runtime=docker --gvisor
+  ```
+
+## DEFAULT SETTINGS
+
+- Image: `ghcr.io/anomalyco/opencode:latest`
+- Project: Current directory, read/write
+- Session data: `.opencode-sandbox/`, mounted at `/root/.local/share/opencode`
+- Config: `$HOME/.config/opencode`, read-only unless `--edit-config` is given
+- Requested limits: `4g` RAM, 2 CPUs, 1024 processes
+- DNS: `1.1.1.1`
 
 ```sh
-# same network as a local Ollama/LM Studio container
-opencode-sandbox --docker-network local-ai-net
+opencode-sandbox --container-memory=8g --container-cpus=4
+opencode-sandbox --container-network=local-ai-net --container-dns=9.9.9.9
 ```
 
-Custom image:
+#### Notes
 
-```sh
-# pin a version or use a mirror registry
-OPENCODE_IMAGE=ghcr.io/anomalyco/opencode:0.9.4 opencode-sandbox
-```
+- **Named networks:** Create the network before using it
+- **Session directory:** New directories use mode `0700` so only your user can access them. Existing permissions and directory symlinks are kept
+- **Config setup:** Missing `.gitignore` is created for read-only startup. Plugin installation may require `--edit-config`
 
-Other environment overrides: `OPENCODE_RUNTIME` (`docker`, `podman`, or `auto`),
-`OPENCODE_GVISOR` (`0` or `1`), `OPENCODE_GUARD` (trusted guard binary path),
-`OPENCODE_GUARD_DIR` (packaged guard directory, default
-`/usr/lib/opencode-sandbox`), `OPENCODE_CONFIG_DIR`, `OPENCODE_MEMORY`,
-`OPENCODE_CPUS`, `OPENCODE_PIDS`, and `OPENCODE_DNS`.
+## SANDBOX PROTECTION
 
-## Security Model
+The launcher restricts container privileges, separates IPC and cgroup namespaces,
+disables core dumps, and hides hardware information under `/sys`.
 
-The container is launched with:
+The guard blocks sensitive system files and system calls. It reports sandbox
+identity and memory values instead of the host's, while allowing basic file
+information checks.
 
-- All Linux capabilities dropped (`--cap-drop ALL`)
-- Privilege escalation blocked (`--security-opt no-new-privileges`)
-- Interactive read/write access to the current project only
-- State persisted under `<project>/.opencode-sandbox`, reachable inside the container
-  only at its data path (`/root/.local/share/opencode`); it is masked out of the
-  project tree so the agent can't poke at it as project content
-- Shared config at `~/.config/opencode` (read-only by default; opt into
-  read/write with `--config-rw`)
+## SECURITY MATRIX — CONTAINERIZER COMPARISON
 
-A seccomp guard (a small static binary) runs as the container entrypoint.
-Every `open`, `openat`, `openat2`, and `creat` the agent attempts is
-intercepted; the guard performs the open itself, verifies what was actually
-opened, and hands the checked descriptor over via a kernel notification.
-Opens that resolve to procfs, sysfs, or cgroup filesystems are denied,
-including symlink and magic-link aliases. `uname` and `sysinfo` report
-sandbox numbers instead of the host's: a fixed hostname, a synthetic kernel
-version, sandbox uptime, and the configured memory limit. The guard also
-denies the syscalls that could escape the container: ptrace, process-memory
-access, file-handle opens, mount and namespace changes, io_uring, BPF, and
-installing replacement seccomp filters. This closes the Docker `/proc` gaps
-that path-based masking cannot. Metadata-only syscalls such as `stat` and
-`readlink` are not mediated; denying them globally breaks OpenCode's startup.
-With `--gvisor`, the guard is skipped because the userspace kernel provides
-its own boundary.
+| Surface | Docker + guard | Podman + guard | Docker+gVisor(runsc) |
+| --- | --- | --- | --- |
+| `*` (container isolation) | Container isolation | Container isolation | Container isolation |
+| `/sys/class/dmi/id`<br>Board serial, UUID, vendor | Blocked (tmpfs) | Blocked (tmpfs) | Blocked (tmpfs) |
+| `/sys/bus/pci`<br>GPU and PCI hardware | Blocked (tmpfs) | Blocked (tmpfs) | Blocked (tmpfs) |
+| `/sys/block`<br>Disk model, size, type | Blocked (tmpfs) | Blocked (tmpfs) | Blocked (tmpfs) |
+| `/sys/devices/virtual/block`<br>Device-mapper and encrypted disk details | Blocked (tmpfs) | Blocked (tmpfs) | Blocked (tmpfs) |
+| `/sys/bus/usb`, `/sys/bus/scsi`<br>USB and SCSI hardware | Blocked (tmpfs) | Blocked (tmpfs) | Blocked (tmpfs) |
+| `/sys/module`, `/sys/kernel`, `/sys/power`, `/sys/fs/pstore`<br>Kernel modules, power and persistent crash metadata | Blocked (tmpfs) | Blocked (tmpfs) | Blocked (tmpfs) |
+| `/proc/cmdline`<br>Kernel boot options | Denied (guard) | Blocked (mask) | Synthetic (runsc) |
+| `/proc/self/mountinfo`<br>Mount layout | Denied (guard) | Denied (guard) | Synthetic (runsc) |
+| `uname`<br>Kernel identity | Synthetic (guard) | Synthetic (guard) | Synthetic (runsc) |
+| `/proc/version`<br>Kernel build information | Denied (guard) | Denied (guard) | Synthetic (runsc) |
+| `/proc/sys/kernel/random/boot_id`<br>Host boot identifier | Denied (guard) | Denied (guard) | Synthetic (runsc) |
+| `/proc/uptime`<br>System uptime | Denied (guard) | Denied (guard) | Synthetic (runsc) |
+| `sysinfo`<br>Memory capacity and uptime | Synthetic (guard) | Synthetic (guard) | Partial (runsc)\* |
+| `/proc/cpuinfo`<br>File access only, not direct CPU queries | Denied (guard) | Blocked (mask) | Partial (runsc)\* |
+| `/proc/meminfo`<br>Host memory and swap | Denied (guard) | Blocked (mask) | Partial (runsc)\* |
+| Direct CPU queries (`CPUID`, affinity)<br>CPU model, features, available CPUs | Exposed | Exposed | Exposed |
 
-Under a rootful daemon the container runs as the host user (its UID/GID are
-mapped with `--user`, and `/root` is masked with a writable tmpfs), so session
-files written into the state store stay owned by you and need no `sudo` to
-clean up. With a rootless daemon the unprivileged UID is already mapped, so no
-extra wrapping is done.
+\* **gVisor notes (runsc, Systrap):**
+- `/proc/cpuinfo`
+  - **Visible:** `vendor_id`, `model`, `cpu MHz`, `flags` (partial), CPU count (rootless: `--ignore-cgroups`)
+  - **Blocked(Synthetic):** `model name`, `stepping`
+- `/proc/meminfo`
+  - **Visible:** Host `MemTotal` (rootless: `--ignore-cgroups`)
+  - **Blocked(Synthetic):** Host memory usage, host `SwapTotal`
+- `sysinfo`
+  - **Visible:** Host memory capacity (`MemTotal`), current host free RAM
+  - **Blocked(Synthetic):** Uptime, swap, process count
+- `/proc/sys/kernel/random/boot_id`
+  - **Synthetic:** Fresh random value per sandbox; differs between runs and never matches the host
 
-The container starts with sane resource limits: 4 GB RAM, 2 CPUs, and
-1024 processes. To override, set `OPENCODE_MEMORY`, `OPENCODE_CPUS`, or
-`OPENCODE_PIDS` (e.g. `OPENCODE_MEMORY=8g opencode-sandbox`).
+### Limitations
 
-Network internals are hardened with conservative defaults in the container's
-own network namespace (unless `--docker-network host` is used). The
-network-tuning sysctls are skipped whenever the container shares the host's
-network stack — whether via the user's own `--docker-network host` flag or any
-host-driver bridge the user supplied. `--no-network` disables networking
-entirely (`--network none`), for fully offline sessions.
+Container isolation is not hardware anonymity or a guarantee against escapes.
 
-Project and config are mounted non-recursively with private propagation, so
-nested mounts on your host don't leak in.
+- **Shared files:** The agent can access the directory where you run the sandbox
+  and its session data. Common OpenCode config is read-only unless you use `--edit-config`
+- **Networking:** The network is reachable and your public IP is visible unless you use `--no-network`
+- **Container options:** Direct `--container-` options can weaken or override sandbox protections
 
-The hostname is fixed to `opencode`; hosts and resolver files are runtime-generated.
-Podman may add host-access aliases; host services may remain reachable.
-Your public egress IP is not hidden. DNS defaults to `1.1.1.1`;
-override with `--container-dns=9.9.9.9`.
-The container also gets private IPC and cgroup namespaces, and core dumps are
-disabled (`--ulimit core=0`).
+## DEVELOPMENT
 
-Before launching, the shared directories are checked for Unix sockets, device
-nodes, FIFOs, and hard-linked files (they would expose host IPC or host files
-through the mounts); the sandbox refuses to start if any are found. The config
-and project directories must not overlap, and paths containing commas, quotes,
-or newlines are rejected (they would break the container mounts). To share a
-config location other than `~/.config/opencode`, set `OPENCODE_CONFIG_DIR`.
+- **Build:** `make` compiles the guard to `build/opencode-guard`
+- **Tests:** `make test` builds the guard and runs the Python tests
+- **Test coverage:** Launcher argument handling, guard behavior, project initialization and package contents
+- **Package tests:** Missing package tools skip locally but are required in CI
 
-Sandbox options are validated before anything runs: `OPENCODE_GVISOR` must be
-`0` or `1`, the image must be a real reference (anything starting with `-` is
-rejected as a runtime option), and network names must be plain identifiers —
-never namespaces, mounting modes, or inline options. `host` and `none` remain
-selectable; which network the agent can see is the user's grant.
-
-The launcher must be installed outside the sandboxed project directory, so the
-agent can't replace the trusted launcher from inside. The `.opencode-sandbox`
-state directory must be a real directory — the launcher refuses a symlinked
-store, so the project's session data can't be silently redirected elsewhere.
-
-Both scripts run with a restrictive `umask 077`, so everything they create —
-including the private `.opencode-sandbox` store — is never
-world-readable or world-writable.
-
-`opencode-project-init` only ever creates the state store itself (never a
-symlink and never an existing non-directory), and a fresh store is `chmod 0700`
-so only the project owner can read the sandbox session data.
-
-Add `.opencode-sandbox/` to your ignore rules; the initializer does not edit `.gitignore`.
-
-Both runtimes mask the host `/sys` fingerprint surfaces on read-only tmpfs
-(`/sys/devices`, `/sys/module`, `/sys/bus/pci|usb|scsi`, `/sys/block`,
-`/sys/class/dmi/id`, `/sys/kernel`, `/sys/power`, `/sys/fs/pstore`).
-Podman additionally masks `/proc/cmdline`, `/proc/cpuinfo`, and `/proc/meminfo`
-(`--security-opt mask=…`) — paths Docker cannot mask.
-
-With `--gvisor`, the container runs under gVisor's `runsc`, a userspace kernel,
-so the host `/proc` and `/sys` surfaces are emulated instead of exposed — even
-paths Docker cannot mask. Requires the `runsc` runtime registered with Docker;
-the check matches the registered runtime name exactly (never a context that
-contains a look-alike name), because a container running under the wrong
-runtime would violate the sandbox contract.
-
-## Security Matrix — Containerizer Comparison
-
-<table>
-  <thead>
-    <tr><th align="left">Surfaces</th><th align="center">Docker</th><th align="center">Podman</th><th align="center">Docker + gVisor</th><th align="left">Info</th></tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code>*</code></td>
-      <td align="center">Total separation ✔</td>
-      <td align="center">Total separation ✔</td>
-      <td align="center">Untested</td>
-      <td>Container can't access host system except for some read-only surfaces, depending on the containerizer used</td>
-    </tr>
-    <tr>
-      <td colspan="5" align="center"><strong>Additional Hardening</strong></td>
-    </tr>
-    <tr>
-      <td><code>/sys/class/dmi/id</code></td>
-      <td align="center">Blocked (tmpfs) ✔</td>
-      <td align="center">Blocked (tmpfs) ✔</td>
-      <td align="center">Untested</td>
-      <td>Motherboard info (serial, UUID, vendor)</td>
-    </tr>
-    <tr>
-      <td><code>/sys/block</code></td>
-      <td align="center">Blocked (tmpfs) ✔</td>
-      <td align="center">Blocked (tmpfs) ✔</td>
-      <td align="center">Untested</td>
-      <td>Disk model, size, type</td>
-    </tr>
-    <tr>
-      <td><code>/sys/devices/virtual/block</code></td>
-      <td align="center">Blocked (tmpfs) ✔</td>
-      <td align="center">Blocked (tmpfs) ✔</td>
-      <td align="center">Untested</td>
-      <td>Encrypted disk setup (dm names, LUKS, backing devices)</td>
-    </tr>
-    <tr>
-      <td><code>/sys/bus/pci</code></td>
-      <td align="center">Blocked (tmpfs) ✔</td>
-      <td align="center">Blocked (tmpfs) ✔</td>
-      <td align="center">Untested</td>
-      <td>GPUs and other PCI hardware (vendor/model, driver)</td>
-    </tr>
-    <tr>
-      <td><code>/proc/cmdline</code></td>
-      <td align="center">Open denied (guard) ✔</td>
-      <td align="center">Blocked (masked path) ✔</td>
-      <td align="center">Untested</td>
-      <td>Kernel boot options (root disk, LUKS UUIDs, security)</td>
-    </tr>
-    <tr>
-      <td><code>/proc/cpuinfo</code></td>
-      <td align="center">Open denied (guard) ✔</td>
-      <td align="center">Blocked (masked path) ✔</td>
-      <td align="center">Untested</td>
-      <td>CPU details through this file only; direct queries remain possible</td>
-    </tr>
-    <tr>
-      <td>Direct CPU queries (<code>CPUID</code>, affinity)</td>
-      <td align="center">Exposed ✘</td>
-      <td align="center">Exposed ✘</td>
-      <td align="center">Untested</td>
-      <td>CPU model/features and available CPUs can aid fingerprinting; not a unique machine ID</td>
-    </tr>
-    <tr>
-      <td><code>/proc/meminfo</code></td>
-      <td align="center">Open denied (guard) ✔</td>
-      <td align="center">Blocked (masked path) ✔</td>
-      <td align="center">Untested</td>
-      <td>Host memory (total, swap)</td>
-    </tr>
-    <tr>
-      <td><code>/proc/self/mountinfo</code></td>
-      <td align="center">Open denied (guard) ✔</td>
-      <td align="center">Open denied (guard) ✔</td>
-      <td align="center">Untested</td>
-      <td>The container's own mounts and their host mapping</td>
-    </tr>
-  </tbody>
-</table>
-
-**Legend:** `✔` implemented · `⧗` planned · `✘` Docker/Podman limitation
-
-**Open denied (guard)** — the seccomp guard rejects opens of the path;
-metadata-only syscalls (`stat`, `readlink`) are not mediated, and the guard is
-skipped with `--gvisor`.
-
-**gVisor CPU privacy** — emulated `/proc/cpuinfo` does not imply hardware anonymity.
-[gVisor documents direct CPU execution](https://gvisor.dev/docs/architecture_guide/intro/#what-does-gvisor-not-protect-against).
-A direct rootless `runsc do` probe on default Systrap exposed the host CPU brand,
-feature bits, and affinity. Docker integration and the KVM platform remain unverified.
-
-## Planned Features
-
-- **Kata VM (`--vm`)** — an optional Kata Containers (QEMU-backed) runtime that
-  runs the session in its own virtual machine, so host firmware and kernel
-  surfaces are emulated rather than exposed. Requires `/dev/kvm` and a Kata
-  runtime registered with the container daemon.
-
-## Development
-
-`make` builds the seccomp guard into `build/opencode-guard`, and `make test`
-builds it and runs the Python suite (`python3 -B -m unittest discover -s
-tests -v`):
-
-- `tests/test_launcher.py` — runs the launcher against fake `docker`/`podman`
-  binaries (no daemon needed) and asserts the exact container flags, mounts,
-  and refusal paths.
-- `tests/test_guard.py` — runs the built guard on the host kernel: procfs and
-  sysfs opens are denied, ordinary I/O and child processes still work, and
-  `uname`/`sysinfo` are synthetic.
-
-Shell scripts (`opencode-sandbox`, `opencode-project-init`, `packaging/build.sh`)
-are formatted with [shfmt](https://github.com/mvdan/sh). Enable the committed
-pre-commit hook to auto-format on every commit:
+Shell scripts use `shfmt`. Enable the formatting hook with:
 
 ```sh
 git config core.hooksPath .githooks
 ```
 
-The hook formats staged shell scripts with `shfmt -w`, re-stages them, and skips
-partially staged files so it never commits changes you didn't stage. Install
-`shfmt` (e.g. `apk add shfmt`, `brew install shfmt`), or commits pass untouched.
+## PLANNED FEATURES
 
-## License
+- **Kata VM:** VM-backed container isolation
+
+## LICENSE
 
 GPL-3.0-or-later — see [LICENSE](LICENSE).

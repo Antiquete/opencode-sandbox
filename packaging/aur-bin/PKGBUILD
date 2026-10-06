@@ -3,13 +3,14 @@
 pkgname=opencode-sandbox-bin
 pkgver=1.6.2
 pkgrel=1
-pkgdesc="Run OpenCode inside an isolated Docker sandbox (prebuilt release)"
+pkgdesc="Run OpenCode inside an isolated container (prebuilt release)"
 arch=("x86_64")
 url="https://github.com/Antiquete/opencode-sandbox"
 license=("GPL-3.0-or-later")
 provides=("opencode-sandbox")
 conflicts=("opencode-sandbox-git")
-depends=("bash" "docker")
+depends=("bash")
+optdepends=("docker: Docker runtime" "podman: Podman runtime")
 source=("opencode-sandbox-$pkgver.tar.gz::https://github.com/Antiquete/opencode-sandbox/releases/download/v$pkgver/opencode-sandbox-$pkgver.tar.gz")
 sha256sums=("SKIP")
 
