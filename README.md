@@ -156,11 +156,12 @@ entirely (`--network none`), for fully offline sessions.
 Project and config are mounted non-recursively with private propagation, so
 nested mounts on your host don't leak in.
 
-The container uses a fixed hostname (`opencode`) and fresh resolver/hosts files
-instead of the host's, so nothing identifies your machine. DNS defaults to
-`1.1.1.1`; override with `OPENCODE_DNS` (e.g. `OPENCODE_DNS=9.9.9.9
-opencode-sandbox`). It also gets its own private IPC and cgroup namespaces, and
-core dumps are disabled (`--ulimit core=0`).
+The hostname is fixed to `opencode`; hosts and resolver files are runtime-generated.
+Podman may add host-access aliases; host services may remain reachable.
+Your public egress IP is not hidden. DNS defaults to `1.1.1.1`;
+override with `--container-dns=9.9.9.9`.
+The container also gets private IPC and cgroup namespaces, and core dumps are
+disabled (`--ulimit core=0`).
 
 Before launching, the shared directories are checked for Unix sockets, device
 nodes, FIFOs, and hard-linked files (they would expose host IPC or host files
@@ -180,8 +181,8 @@ agent can't replace the trusted launcher from inside. The `.opencode-sandbox`
 state directory must be a real directory — the launcher refuses a symlinked
 store, so the project's session data can't be silently redirected elsewhere.
 
-Both scripts run with a restrictive `umask 077`, so everything they create — the
-fresh resolver/hosts stubs and the private `.opencode-sandbox` store — is never
+Both scripts run with a restrictive `umask 077`, so everything they create —
+including the private `.opencode-sandbox` store — is never
 world-readable or world-writable.
 
 `opencode-project-init` only ever creates the state store itself (never a
@@ -216,7 +217,7 @@ runtime would violate the sandbox contract.
       <td><code>*</code></td>
       <td align="center">Total separation ✔</td>
       <td align="center">Total separation ✔</td>
-      <td align="center">Total separation ✔</td>
+      <td align="center">Untested</td>
       <td>Container can't access host system except for some read-only surfaces, depending on the containerizer used</td>
     </tr>
     <tr>
@@ -226,56 +227,63 @@ runtime would violate the sandbox contract.
       <td><code>/sys/class/dmi/id</code></td>
       <td align="center">Blocked (tmpfs) ✔</td>
       <td align="center">Blocked (tmpfs) ✔</td>
-      <td align="center">Emulated ✔</td>
+      <td align="center">Untested</td>
       <td>Motherboard info (serial, UUID, vendor)</td>
     </tr>
     <tr>
       <td><code>/sys/block</code></td>
       <td align="center">Blocked (tmpfs) ✔</td>
       <td align="center">Blocked (tmpfs) ✔</td>
-      <td align="center">Emulated ✔</td>
+      <td align="center">Untested</td>
       <td>Disk model, size, type</td>
     </tr>
     <tr>
       <td><code>/sys/devices/virtual/block</code></td>
       <td align="center">Blocked (tmpfs) ✔</td>
       <td align="center">Blocked (tmpfs) ✔</td>
-      <td align="center">Emulated ✔</td>
+      <td align="center">Untested</td>
       <td>Encrypted disk setup (dm names, LUKS, backing devices)</td>
     </tr>
     <tr>
       <td><code>/sys/bus/pci</code></td>
       <td align="center">Blocked (tmpfs) ✔</td>
       <td align="center">Blocked (tmpfs) ✔</td>
-      <td align="center">Emulated ✔</td>
+      <td align="center">Untested</td>
       <td>GPUs and other PCI hardware (vendor/model, driver)</td>
     </tr>
     <tr>
       <td><code>/proc/cmdline</code></td>
       <td align="center">Open denied (guard) ✔</td>
       <td align="center">Blocked (masked path) ✔</td>
-      <td align="center">Emulated ✔</td>
+      <td align="center">Untested</td>
       <td>Kernel boot options (root disk, LUKS UUIDs, security)</td>
     </tr>
     <tr>
       <td><code>/proc/cpuinfo</code></td>
       <td align="center">Open denied (guard) ✔</td>
       <td align="center">Blocked (masked path) ✔</td>
-      <td align="center">Emulated ✔</td>
-      <td>CPU model and core count</td>
+      <td align="center">Untested</td>
+      <td>CPU details through this file only; direct queries remain possible</td>
+    </tr>
+    <tr>
+      <td>Direct CPU queries (<code>CPUID</code>, affinity)</td>
+      <td align="center">Exposed ✘</td>
+      <td align="center">Exposed ✘</td>
+      <td align="center">Untested</td>
+      <td>CPU model/features and available CPUs can aid fingerprinting; not a unique machine ID</td>
     </tr>
     <tr>
       <td><code>/proc/meminfo</code></td>
       <td align="center">Open denied (guard) ✔</td>
       <td align="center">Blocked (masked path) ✔</td>
-      <td align="center">Emulated ✔</td>
+      <td align="center">Untested</td>
       <td>Host memory (total, swap)</td>
     </tr>
     <tr>
       <td><code>/proc/self/mountinfo</code></td>
       <td align="center">Open denied (guard) ✔</td>
       <td align="center">Open denied (guard) ✔</td>
-      <td align="center">Emulated ✔</td>
+      <td align="center">Untested</td>
       <td>The container's own mounts and their host mapping</td>
     </tr>
   </tbody>
@@ -286,6 +294,11 @@ runtime would violate the sandbox contract.
 **Open denied (guard)** — the seccomp guard rejects opens of the path;
 metadata-only syscalls (`stat`, `readlink`) are not mediated, and the guard is
 skipped with `--gvisor`.
+
+**gVisor CPU privacy** — emulated `/proc/cpuinfo` does not imply hardware anonymity.
+[gVisor documents direct CPU execution](https://gvisor.dev/docs/architecture_guide/intro/#what-does-gvisor-not-protect-against).
+A direct rootless `runsc do` probe on default Systrap exposed the host CPU brand,
+feature bits, and affinity. Docker integration and the KVM platform remain unverified.
 
 ## Planned Features
 
