@@ -24,7 +24,8 @@ MAINTAINER="${MAINTAINER:-$GIT_NAME ${MAINTAINER_EMAIL:-$GIT_EMAIL}}"
 [ -n "$(printf '%s' "$MAINTAINER" | tr -d '[:space:]')" ] || MAINTAINER="OpenCode Sandbox Maintainers"
 
 DIST="$ROOT/dist"
-PKG=/tmp/opencode-sandbox
+PKG="$(mktemp -d "${TMPDIR:-/tmp}/opencode-package.XXXXXXXX")"
+trap 'rm -rf -- "$PKG"' EXIT
 # The guard binary is arch-specific, so the packages are too.
 HOST_ARCH="$(uname -m)"
 case "$HOST_ARCH" in
@@ -58,7 +59,7 @@ build_tarball() {
 
 build_deb() {
 	echo "== .deb =="
-	DEB=/tmp/deb
+	DEB="$PKG/deb"
 	mkdir -p "$DEB/DEBIAN" "$DEB/usr/bin" "$DEB/usr/lib/opencode-sandbox"
 	cp "$PKG/usr/bin"/* "$DEB/usr/bin/"
 	cp "$PKG/usr/lib/opencode-sandbox/guard" "$DEB/usr/lib/opencode-sandbox/guard"
@@ -79,7 +80,7 @@ EOF
 
 build_rpm() {
 	echo "== .rpm =="
-	RPM=/tmp/rpmbuild
+	RPM="$PKG/rpmbuild"
 	mkdir -p "$RPM/SPECS" "$RPM/SOURCES"
 	cp opencode-sandbox opencode-project-init build/opencode-guard "$RPM/SOURCES/"
 	cat >"$RPM/SPECS/opencode-sandbox.spec" <<EOF
@@ -115,7 +116,7 @@ EOF
 
 build_arch() {
 	echo "== .pkg.tar.zst (Arch) =="
-	ARC=/tmp/arch
+	ARC="$PKG/arch"
 	mkdir -p "$ARC/usr/bin" "$ARC/usr/lib/opencode-sandbox"
 	cp "$PKG/usr/bin"/* "$ARC/usr/bin/"
 	cp "$PKG/usr/lib/opencode-sandbox/guard" "$ARC/usr/lib/opencode-sandbox/guard"
@@ -127,7 +128,7 @@ url = $HOMEPAGE
 builddate = $(date -u +%s)
 packager = $MAINTAINER
 size = $(du -sb "$ARC" | cut -f1)
-arch = any
+arch = $HOST_ARCH
 license = GPL-3.0-or-later
 depend = bash
 depend = docker
@@ -135,7 +136,7 @@ EOF
 	(
 		cd "$ARC"
 		bsdtar -cf .MTREE --format=mtree --options='!all,use-set,type,uid,gid,mode,time,size,md5,sha256' .PKGINFO usr
-		tar --zstd -cf "$DIST/opencode-sandbox-${VER}-1-any.pkg.tar.zst" .PKGINFO .MTREE usr
+		tar --zstd -cf "$DIST/opencode-sandbox-${VER}-1-${HOST_ARCH}.pkg.tar.zst" .PKGINFO .MTREE usr
 	)
 }
 
@@ -158,12 +159,11 @@ RDEPEND="app-shells/bash virtual/docker"
 src_install() {
     dobin opencode-sandbox opencode-project-init
     exeinto /usr/lib/opencode-sandbox
-    doexe build/opencode-guard
+    newexe build/opencode-guard guard
 }
 EOF
 }
 
-rm -rf "$DIST" "$PKG"
 mkdir -p "$DIST"
 stage_binaries
 build_guard

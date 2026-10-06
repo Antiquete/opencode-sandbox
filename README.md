@@ -38,7 +38,7 @@ sudo apt install ./opencode-sandbox_*_amd64.deb
 # Fedora
 sudo dnf install ./opencode-sandbox-*.rpm
 # Arch
-sudo pacman -U ./opencode-sandbox-*-any.pkg.tar.zst
+sudo pacman -U ./opencode-sandbox-*-x86_64.pkg.tar.zst
 # Gentoo
 sudo emerge opencode-sandbox
 ```
@@ -189,9 +189,7 @@ world-readable or world-writable.
 symlink and never an existing non-directory), and a fresh store is `chmod 0700`
 so only the project owner can read the sandbox session data.
 
-The `.gitignore` update is atomic: it writes a temp file in the project and
-replaces the target in one step, preserving the file's existing permissions,
-and it refuses symlinked or non-regular `.gitignore` files.
+Add `.opencode-sandbox/` to your ignore rules; the initializer does not edit `.gitignore`.
 
 Both runtimes mask the host `/sys` fingerprint surfaces on read-only tmpfs
 (`/sys/devices`, `/sys/module`, `/sys/bus/pci|usb|scsi`, `/sys/block`,
