@@ -1,7 +1,7 @@
 # Maintainer: antiquete <antiquete@proton.me>
 
 pkgname=opencode-sandbox-bin
-pkgver=1.6.2
+pkgver=1.7.0
 pkgrel=1
 pkgdesc="Run OpenCode inside an isolated container (prebuilt release)"
 arch=("x86_64")
