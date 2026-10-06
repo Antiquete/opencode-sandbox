@@ -74,3 +74,20 @@ class RuntimeIdentityTests(unittest.TestCase):
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn(f"cannot determine whether {runtime} is rootless", result.stdout)
                     self.assertNotIn("Continue?", result.stdout)
+
+    def test_rootless_gvisor_warns_without_rejecting_launch(self):
+        for rootless in (False, True):
+            for explicit in (False, True):
+                with self.subTest(rootless=rootless, explicit=explicit):
+                    env = dict(self.env, TEST_DOCKER_SECURITY_OPTIONS='["name=rootless"]' if rootless else "[]")
+                    result = subprocess.run(
+                        ["bash", str(ROOT / "opencode-sandbox"), *(["--gvisor"] if explicit else [])],
+                        cwd=self.project, env=env, input="n\n", text=True,
+                        capture_output=True, timeout=5,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn("Continue?", result.stdout)
+                    gvisor = explicit or not rootless
+                    self.assertIn("gVisor:ON" if gvisor else "gVisor:OFF", result.stdout)
+                    self.assertIn("Guard:OFF" if gvisor else "Guard:ON", result.stdout)
+                    self.assertEqual("Warning: rootless gVisor" in result.stdout, rootless and explicit)

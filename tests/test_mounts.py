@@ -98,3 +98,4 @@ class MountTests(unittest.TestCase):
                     else:
                         self.assertEqual([fields for fields in homes if "dst=/root" == fields[1]], homes)
                     self.assertEqual("--user" in args, not rootless)
+                    self.assertEqual("XDG_STATE_HOME=/root/.state" in args, not rootless)

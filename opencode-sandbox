@@ -190,8 +190,8 @@ resolve STATE_DIR "$STATE_DIR"
 # --------------------------------------------------------------------------
 # Set default CONTAINERIZER
 if [[ $CONTAINERIZER == auto ]]; then
-	# gVisor Docker first, then Podman, then ordinary Docker
-	if has_runsc; then
+	# Explicit gVisor or rootful gVisor first, then Podman, then Docker
+	if has_runsc && { [[ $GVISOR == 1 ]] || ! rootless docker; }; then
 		GVISOR=1
 		GUARD=0
 		echo "Container(Auto): Docker+gVisor"
@@ -270,10 +270,13 @@ fi
 # Set user config for rootful or rootless runtimes
 if rootless "$CONTAINERIZER"; then
 	USER_OPTS=(--env HOME=/root)
+	if [[ $GVISOR == 1 ]]; then
+		echo "Warning: rootless gVisor may require --ignore-cgroups; requested memory, CPU, and PID limits are not enforced with that setting."
+	fi
 else
 	# /root is mode 700 in the image, so a non-root uid needs a writable HOME
 	# to reach the state and config binds nested underneath it.
-	USER_OPTS=(--user "$(id -u):$(id -g)" --env HOME=/root)
+	USER_OPTS=(--user "$(id -u):$(id -g)" --env HOME=/root --env XDG_STATE_HOME=/root/.state)
 	MOUNT_OPTS+=(--mount "type=tmpfs,dst=/root,tmpfs-mode=1777$EMPTY_TMPFS")
 fi
 
@@ -286,7 +289,6 @@ MOUNT_OPTS+=(
 	--mount "type=tmpfs,dst=/sys/bus/usb,readonly,tmpfs-size=4096$EMPTY_TMPFS"
 	--mount "type=tmpfs,dst=/sys/bus/scsi,readonly,tmpfs-size=4096$EMPTY_TMPFS"
 	--mount "type=tmpfs,dst=/sys/block,readonly,tmpfs-size=4096$EMPTY_TMPFS"
-	--mount "type=tmpfs,dst=/sys/class/dmi/id,readonly,tmpfs-size=4096$EMPTY_TMPFS"
 	--mount "type=tmpfs,dst=/sys/kernel,readonly,tmpfs-size=4096$EMPTY_TMPFS"
 	--mount "type=tmpfs,dst=/sys/power,readonly,tmpfs-size=4096$EMPTY_TMPFS"
 	--mount "type=tmpfs,dst=/sys/fs/pstore,readonly,tmpfs-size=4096$EMPTY_TMPFS"
@@ -302,6 +304,9 @@ MOUNT_OPTS+=(
 	# config -> /root/.config/opencode
 	--mount "type=bind,$(mount_source "$CONFIG_DIR"),dst=/root/.config/opencode,${CONFIG_MODE:+$CONFIG_MODE,}$NONRECURSIVE,bind-propagation=rprivate"
 )
+
+# gVisor's DMI symlink points into the already masked /sys/devices tree.
+[[ $GVISOR == 1 ]] || MOUNT_OPTS+=(--mount "type=tmpfs,dst=/sys/class/dmi/id,readonly,tmpfs-size=4096$EMPTY_TMPFS")
 
 # Add guard
 if [[ $GUARD == 1 ]]; then

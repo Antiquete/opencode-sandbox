@@ -18,7 +18,12 @@ Session remains preserved, start where you left off. Only the container resets, 
 ## Requirements
 
 - **bash** and a **docker** or **podman** CLI with a running daemon
-- **gVisor** (optional) — only needed for `--gvisor`; install `runsc` and register it as a Docker runtime
+- **gVisor** (optional) — install `runsc` and register it as a Docker runtime
+
+Rootless Docker uses gVisor only with explicit `--gvisor`, with a resource-limit warning.
+The tested runsc version needs `--ignore-cgroups` to start rootlessly; with that
+setting, requested memory, CPU, and PID limits are not enforced. Rootful gVisor
+applies those limits. The launcher does not change daemon configuration.
 - **cc and make** (optional) — only to build the seccomp guard from source or run `make test` (with `python3`); packages ship a prebuilt guard
 
 ## Installing
