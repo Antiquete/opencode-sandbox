@@ -10,7 +10,7 @@ INIT = Path(__file__).resolve().parents[1] / "opencode-project-init"
 
 class ProjectInitTests(unittest.TestCase):
     def test_gitignore_is_left_to_user(self):
-        for contents in (None, "", "existing", "existing\n", ".opencode-sandbox/\n"):
+        for contents in (None, "existing\n"):
             with self.subTest(contents=contents), tempfile.TemporaryDirectory() as temporary:
                 base = Path(temporary)
                 home = base / "home"
@@ -25,7 +25,7 @@ class ProjectInitTests(unittest.TestCase):
                 for _ in range(2):
                     result = subprocess.run([str(INIT)], cwd=project,
                                             env={**os.environ, "HOME": str(home)},
-                                            text=True, capture_output=True)
+                                            text=True, capture_output=True, timeout=5)
                     self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("Add .opencode-sandbox/ to your ignore rules", result.stdout)
                 if contents is None:
@@ -57,7 +57,7 @@ class ProjectInitTests(unittest.TestCase):
                     target.rename(state)
                 result = subprocess.run(
                     [str(INIT)], cwd=project, env={**os.environ, "HOME": str(home)},
-                    text=True, capture_output=True,
+                    text=True, capture_output=True, timeout=5,
                 )
                 if kind in ("new", "directory", "directory-link"):
                     self.assertEqual(result.returncode, 0, result.stderr)

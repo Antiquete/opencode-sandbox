@@ -31,7 +31,7 @@ class PackagingTests(unittest.TestCase):
                "HOMEPAGE": "https://example.com", "MAINTAINER": "Package Test"}
         setup = '\nstage_binaries\ninstall -Dm755 build/opencode-guard "$PKG/usr/lib/opencode-sandbox/guard"\n'
         result = subprocess.run(["bash", "-c", "set -euo pipefail\n" + FUNCTIONS + setup + function],
-                                cwd=ROOT, env=env, text=True, capture_output=True)
+                                cwd=ROOT, env=env, text=True, capture_output=True, timeout=120)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return dist
 

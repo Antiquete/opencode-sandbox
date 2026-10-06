@@ -3,10 +3,11 @@
 Each test runs a snippet under build/opencode-guard on this host's kernel
 using synthetic temporary files only — never host secrets. Docker-based
 integration is a separate concern; these pin the supervisor's mechanism:
-deny host metadata (including alias bypasses), keep normal I/O working,
+deny system-file content (including alias bypasses), keep normal I/O working,
 and spoof uname/sysinfo.
 """
 import os
+import signal
 from pathlib import Path
 import subprocess
 import sys
@@ -23,7 +24,7 @@ class GuardTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.base = Path(self.temp.name)
 
-    def guarded(self, code, *args, timeout=30, env_extra=None):
+    def guarded(self, code, *args, timeout=30, env_extra=None, placeholder=True):
         binary_dir = self.base / "bin"
         binary_dir.mkdir(exist_ok=True)
         opencode = binary_dir / "opencode"
@@ -38,9 +39,35 @@ class GuardTests(unittest.TestCase):
         if env_extra:
             env.update(env_extra)
         env["PATH"] = f"{binary_dir}:{env['PATH']}"
-        return subprocess.run(["/opt/opencode-sandbox/guard", "opencode", *map(str, args)],
+        return subprocess.run(["/opt/opencode-sandbox/guard", *(["opencode"] if placeholder else []), *map(str, args)],
                               executable=str(GUARD), cwd=self.base, env=env,
                               text=True, capture_output=True, timeout=timeout)
+
+    def test_arguments_preserve_boundaries(self):
+        result = self.guarded("import sys\nassert sys.argv[1:] == ['space value', '', 'a=b', '--flag']\n",
+                              "space value", "", "a=b", "--flag")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_missing_placeholder_is_rejected(self):
+        result = self.guarded("raise AssertionError('workload started')", placeholder=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing command placeholder", result.stderr)
+
+    def test_signals_are_forwarded(self):
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT, signal.SIGWINCH):
+            with self.subTest(signal=sig):
+                result = self.guarded(f"""
+import os, signal, time
+def received(sig, frame):
+    print(sig, flush=True)
+    raise SystemExit(23)
+signal.signal({int(sig)}, received)
+os.kill(os.getppid(), {int(sig)})
+while True:
+    time.sleep(1)
+""", timeout=5)
+                self.assertEqual(result.returncode, 23, result.stderr)
+                self.assertEqual(result.stdout.strip(), str(int(sig)))
 
     def test_direct_invocation_is_rejected(self):
         env = os.environ.copy()
@@ -105,7 +132,7 @@ assert os.path.isabs(os.readlink('/proc/self/exe'))
 ''')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_relative_and_dirfd_opens_denied(self):
+    def test_relative_opens_denied(self):
         result = self.guarded('''import os
 try:
     os.open('/proc', os.O_RDONLY | os.O_DIRECTORY)
@@ -188,7 +215,7 @@ assert info.totalram * info.mem_unit == int(sys.argv[1])
     def test_invalid_guard_memory_fails_startup(self):
         for memory in ("", "1qq", "-1", "1e9999", "18446744073709551616", "99999p"):
             with self.subTest(memory=memory):
-                result = self.guarded("pass", env_extra={"OPENCODE_GUARD_MEMORY": memory})
+                result = self.guarded("raise AssertionError('workload started')", env_extra={"OPENCODE_GUARD_MEMORY": memory})
                 self.assertEqual(result.returncode, 1)
                 self.assertIn("invalid OPENCODE_GUARD_MEMORY", result.stderr)
 
@@ -217,17 +244,38 @@ else:
 ''')
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_sensitive_dirfd_open_is_denied(self):
+        (self.base / "alias").symlink_to("/proc/cmdline")
+        result = self.guarded('''import os
+directory = os.open('.', os.O_RDONLY | os.O_DIRECTORY)
+try:
+    os.open('alias', os.O_RDONLY, dir_fd=directory)
+except PermissionError:
+    pass
+else:
+    raise AssertionError('directory descriptor bypass')
+finally:
+    os.close(directory)
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_proc_fd_magic_link_is_not_followed(self):
         result = self.guarded('''import errno, os
 fd = os.open('regular-file', os.O_CREAT | os.O_RDWR, 0o600)
 try:
     os.write(fd, b'allowed filesystem target')
-    try:
-        os.open(f'/proc/self/fd/{fd}', os.O_RDONLY)
-    except OSError as e:
-        assert e.errno in (errno.ELOOP, errno.EACCES), e
-    else:
-        raise AssertionError('proc fd magic link was followed')
+    for path in (f'/proc/{os.getpid()}/fd/{fd}', f'/proc/self/fd/{fd}',
+                 f'/proc/thread-self/fd/{fd}', f'/dev/fd/{fd}'):
+        try:
+            os.open(path, os.O_RDONLY)
+        except OSError as e:
+            # Self shortcuts resolve in the broker, where this fd may not exist.
+            allowed = (errno.ELOOP, errno.EACCES)
+            if path != f'/proc/{os.getpid()}/fd/{fd}':
+                allowed += (errno.ENOENT,)
+            assert e.errno in allowed, (path, e)
+        else:
+            raise AssertionError('proc fd magic link was followed: ' + path)
 finally:
     os.close(fd)
 ''')
@@ -283,14 +331,96 @@ os.close(directory)
 ''')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_sensitive_opath_open_is_denied(self):
-        result = self.guarded('''import os, errno
-try:
-    os.open('/proc/cmdline', os.O_PATH)
-except OSError as e:
-    assert e.errno in (errno.EACCES, errno.EPERM, errno.EOPNOTSUPP), e
-else:
-    raise AssertionError('O_PATH leak')
+    def test_openat2_in_root_uses_caller_directory(self):
+        result = self.guarded('''import ctypes, errno, os
+class OpenHow(ctypes.Structure):
+    _fields_ = [('flags', ctypes.c_uint64), ('mode', ctypes.c_uint64),
+                ('resolve', ctypes.c_uint64)]
+libc = ctypes.CDLL(None, use_errno=True)
+libc.syscall.restype = ctypes.c_long
+os.mkdir('root')
+open('root/content', 'w').write('rooted')
+os.symlink('/content', 'root/link')
+directory = os.open('root', os.O_PATH | os.O_DIRECTORY)
+how = OpenHow(os.O_RDONLY | os.O_CLOEXEC, 0, 0x10) # RESOLVE_IN_ROOT
+def opened(base, path):
+    return libc.syscall(437, base, path, ctypes.byref(how), ctypes.sizeof(how))
+for path in (b'content', b'/content', b'../content', b'/../content', b'/link'):
+    fd = opened(directory, path)
+    assert fd >= 0, (path, ctypes.get_errno())
+    assert os.read(fd, 32) == b'rooted'
+    assert not os.get_inheritable(fd)
+    os.close(fd)
+assert opened(-1, b'/content') == -1 and ctypes.get_errno() == errno.EBADF
+os.chdir('root')
+fd = opened(-100, b'/content') # AT_FDCWD must use the caller's cwd
+assert fd >= 0, ctypes.get_errno()
+assert os.read(fd, 32) == b'rooted'
+os.close(fd)
+proc = os.open('/proc', os.O_PATH | os.O_DIRECTORY)
+assert opened(proc, b'/cmdline') == -1 and ctypes.get_errno() == errno.EACCES
+os.close(proc)
+os.close(directory)
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_opath_handles_allow_metadata_but_not_content(self):
+        result = self.guarded('''import ctypes, errno, os
+libc = ctypes.CDLL(None, use_errno=True)
+libc.syscall.restype = ctypes.c_long
+open('normal', 'w').write('unchanged')
+paths = ('normal', '/proc/cmdline', '/sys', '/sys/fs/cgroup')
+for path in paths:
+    flags = os.O_PATH | os.O_CLOEXEC | os.O_RDWR | os.O_TRUNC
+    # Exercise both legacy open (x86-64 only) and openat, without libc wrappers.
+    calls = [(257 if os.uname().machine == 'x86_64' else 56,
+              -100, os.fsencode(path), flags, 0)]
+    if os.uname().machine == 'x86_64':
+        calls.append((2, os.fsencode(path), flags, 0))
+    for args in calls:
+        fd = libc.syscall(*args)
+        assert fd >= 0, (path, ctypes.get_errno())
+        assert os.fstat(fd) == os.stat(path)
+        assert not os.get_inheritable(fd)
+        for operation in (lambda: os.read(fd, 1), lambda: os.write(fd, b'x')):
+            try:
+                operation()
+            except OSError as e:
+                assert e.errno == errno.EBADF, e
+            else:
+                raise AssertionError('O_PATH content access')
+        os.close(fd)
+assert open('normal').read() == 'unchanged'
+for path, child in (('/proc', 'cmdline'), ('/sys', 'kernel'), ('/sys/fs/cgroup', '.')):
+    directory = os.open(path, os.O_PATH | os.O_DIRECTORY)
+    os.symlink(path, 'alias')
+    for name, base in ((child, directory), ('alias/' + child, None),
+                       (f'/proc/{os.getpid()}/fd/{directory}/' + child, None)):
+        try:
+            os.open(name, os.O_RDONLY, dir_fd=base)
+        except OSError as e:
+            assert e.errno in (errno.EACCES, errno.ELOOP), (name, e)
+        else:
+            raise AssertionError('O_PATH directory content bypass: ' + name)
+    os.unlink('alias')
+    os.close(directory)
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_openat2_opath_reports_enosys_for_fallback(self):
+        result = self.guarded('''import ctypes, errno, os
+class OpenHow(ctypes.Structure):
+    _fields_ = [('flags', ctypes.c_uint64), ('mode', ctypes.c_uint64),
+                ('resolve', ctypes.c_uint64)]
+libc = ctypes.CDLL(None, use_errno=True)
+libc.syscall.restype = ctypes.c_long
+how = OpenHow(os.O_PATH | os.O_CLOEXEC, 0, 0)
+for path in (b'.', b'/proc/cmdline'):
+    fd = libc.syscall(437, -100, path, ctypes.byref(how), ctypes.sizeof(how))
+    assert fd == -1 and ctypes.get_errno() == errno.ENOSYS, ctypes.get_errno()
+    fd = os.open(path, os.O_PATH | os.O_CLOEXEC)
+    assert os.fstat(fd)
+    os.close(fd)
 ''')
         self.assertEqual(result.returncode, 0, result.stderr)
 

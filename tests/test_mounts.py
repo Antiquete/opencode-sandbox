@@ -70,8 +70,18 @@ class MountTests(unittest.TestCase):
                     self.assertIn("src=" + str(source), mount)
                     self.assertNotIn("", mount)
                 self.assertTrue((self.home / ".config/opencode").is_dir())
+                self.assertEqual((self.home / ".config/opencode/.gitignore").read_text(),
+                                 "node_modules\npackage.json\npackage-lock.json\nbun.lock\n.gitignore")
                 self.assertIn(str(self.state), result.stdout)
                 self.assertTrue(any("dst=/workspace/.opencode-sandbox" in fields for fields in mounts))
+
+    def test_existing_config_gitignore_is_preserved(self):
+        config = self.home / ".config/opencode"
+        config.mkdir(parents=True)
+        ignore = config / ".gitignore"
+        ignore.write_text("custom-rule\n")
+        self.launch("docker")
+        self.assertEqual(ignore.read_text(), "custom-rule\n")
 
     def test_config_mode_and_summary_agree(self):
         for runtime in ("docker", "podman"):
@@ -83,7 +93,7 @@ class MountTests(unittest.TestCase):
                     self.assertNotIn("", mount)
                     self.assertIn("Edit config:ON" if editable else "Edit config:OFF", result.stdout)
 
-    def test_home_writable_for_both_user_mappings(self):
+    def test_home_options_for_both_user_mappings(self):
         for runtime in ("docker", "podman"):
             for rootless in (False, True):
                 with self.subTest(runtime=runtime, rootless=rootless):
@@ -96,6 +106,7 @@ class MountTests(unittest.TestCase):
                     if rootless:
                         self.assertEqual(homes, [])
                     else:
-                        self.assertEqual([fields for fields in homes if "dst=/root" == fields[1]], homes)
+                        self.assertEqual(len(homes), 1)
+                        self.assertIn("dst=/root", homes[0])
                     self.assertEqual("--user" in args, not rootless)
                     self.assertEqual("XDG_STATE_HOME=/root/.state" in args, not rootless)

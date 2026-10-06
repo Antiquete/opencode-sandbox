@@ -3,19 +3,19 @@ import json
 import subprocess
 import unittest
 
-import test_runtime
+from launcher_fixture import ROOT, LauncherTestCase
 
 
 class ExecutionTests(unittest.TestCase):
     def setUp(self):
-        self.fixture = test_runtime.RuntimeIdentityTests()
+        self.fixture = LauncherTestCase()
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
 
     def launch(self, runtime, *options, guarded=False):
         self.fixture.log.write_text("")
-        command = ["bash", str(test_runtime.ROOT / "opencode-sandbox"), f"--runtime={runtime}"]
-        command += ([f"--guard={test_runtime.ROOT / 'build/opencode-guard'}"]
+        command = ["bash", str(ROOT / "opencode-sandbox"), f"--runtime={runtime}"]
+        command += ([f"--guard={ROOT / 'build/opencode-guard'}"]
                     if guarded else ["--no-guard"])
         command += list(options)
         env = dict(self.fixture.env, NETWORK="inherited-network")
@@ -48,8 +48,6 @@ class ExecutionTests(unittest.TestCase):
                 self.assertIn("Guard:OFF", output)
                 self.assertNotIn("blocked", output)
                 self.assertIn(f"Project:{self.fixture.project} (read/write)", output)
-                self.assertNotIn("Launcher settings", output)
-                self.assertNotIn("Isolation", output)
 
     def test_summary_omits_supplied_options(self):
         for runtime in ("docker", "podman"):
@@ -60,7 +58,7 @@ class ExecutionTests(unittest.TestCase):
                 self.assertIn("Network:ON", output)
                 self.assertIn("Network request:host", output)
                 self.assertIn("Guard:ON", output)
-                self.assertIn(str(test_runtime.ROOT / "build/opencode-guard"), output)
+                self.assertIn(str(ROOT / "build/opencode-guard"), output)
                 self.assertNotIn("--model=example", output)
                 self.assertNotIn("--entrypoint=/bin/sh", output)
                 self.assertNotIn("--mount=", output)

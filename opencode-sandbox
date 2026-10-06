@@ -153,8 +153,16 @@ done
 # ----------------------- Opencode Sandbox Directories ---------------------
 # --------------------------------------------------------------------------
 resolve HOME_DIR "$HOME"
+
+# Prepare shared config and initialize ignore rules for read-only startup.
 mkdir -p "$HOME_DIR/.config/opencode"
 resolve CONFIG_DIR "$HOME_DIR/.config/opencode"
+if [[ ! -e $CONFIG_DIR/.gitignore && ! -L $CONFIG_DIR/.gitignore ]]; then
+	(
+		set -C
+		printf '%s' $'node_modules\npackage.json\npackage-lock.json\nbun.lock\n.gitignore' >"$CONFIG_DIR/.gitignore"
+	)
+fi
 
 # Project Directory
 resolve PROJECT .

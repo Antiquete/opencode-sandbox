@@ -3,12 +3,12 @@ import json
 import subprocess
 import unittest
 
-import test_runtime
+from launcher_fixture import ROOT, LauncherTestCase
 
 
 class LimitTests(unittest.TestCase):
     def setUp(self):
-        self.fixture = test_runtime.RuntimeIdentityTests()
+        self.fixture = LauncherTestCase()
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
 
@@ -17,7 +17,7 @@ class LimitTests(unittest.TestCase):
         env = dict(self.fixture.env, MEM_LIMIT="8g", CPUS_LIMIT="16",
                    PIDS_LIMIT="9999", DNS_SERVER="9.9.9.9")
         result = subprocess.run(
-            ["bash", str(test_runtime.ROOT / "opencode-sandbox"),
+            ["bash", str(ROOT / "opencode-sandbox"),
              f"--runtime={runtime}", "--no-guard", *options],
             cwd=self.fixture.project, env=env, input="y\n", text=True,
             capture_output=True, timeout=5,
