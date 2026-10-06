@@ -44,7 +44,7 @@ stage_binaries() {
 # Build the static seccomp guard and stage it for the binary packages.
 build_guard() {
 	echo "== guard binary =="
-	make
+	make -B
 	install -D -m 0755 build/opencode-guard "$PKG/usr/lib/opencode-sandbox/guard"
 }
 
@@ -63,16 +63,17 @@ build_deb() {
 	mkdir -p "$DEB/DEBIAN" "$DEB/usr/bin" "$DEB/usr/lib/opencode-sandbox"
 	cp "$PKG/usr/bin"/* "$DEB/usr/bin/"
 	cp "$PKG/usr/lib/opencode-sandbox/guard" "$DEB/usr/lib/opencode-sandbox/guard"
+	install -D -m 0644 LICENSE "$DEB/usr/share/doc/opencode-sandbox/copyright"
 	cat >"$DEB/DEBIAN/control" <<EOF
 Package: opencode-sandbox
 Version: $VER
 Section: utils
 Priority: optional
 Architecture: $DEB_ARCH
-Depends: bash, docker-ce
+Depends: bash, docker.io | docker-ce | podman
 Maintainer: $MAINTAINER
-Description: Run OpenCode inside an isolated Docker sandbox
- Runs opencode.ai in a locked-down Docker container with access
+Description: Run OpenCode inside an isolated container
+ Runs opencode.ai in a locked-down Docker or Podman container with access
  limited to the current project.
 EOF
 	dpkg-deb -b --root-owner-group "$DEB" "$DIST/opencode-sandbox_${VER}_$DEB_ARCH.deb"
@@ -82,20 +83,20 @@ build_rpm() {
 	echo "== .rpm =="
 	RPM="$PKG/rpmbuild"
 	mkdir -p "$RPM/SPECS" "$RPM/SOURCES"
-	cp opencode-sandbox opencode-project-init build/opencode-guard "$RPM/SOURCES/"
+	cp opencode-sandbox opencode-project-init build/opencode-guard LICENSE "$RPM/SOURCES/"
 	cat >"$RPM/SPECS/opencode-sandbox.spec" <<EOF
 Name: opencode-sandbox
 Version: $VER
 Release: 1
-Summary: Run OpenCode inside an isolated Docker sandbox
+Summary: Run OpenCode inside an isolated container
 License: GPL-3.0-or-later
 URL: $HOMEPAGE
-Requires: bash, docker-ce
+Requires: bash, (docker or docker-ce or podman)
 
 %define __os_install_post %{nil}
 
 %description
-Run opencode.ai inside a locked-down Docker container with access
+Run opencode.ai inside a locked-down Docker or Podman container with access
 limited to the current project.
 
 %install
@@ -104,11 +105,13 @@ install -d %{buildroot}/usr/lib/opencode-sandbox
 install -m 0755 %{_sourcedir}/opencode-sandbox %{buildroot}/usr/bin/
 install -m 0755 %{_sourcedir}/opencode-project-init %{buildroot}/usr/bin/
 install -m 0755 %{_sourcedir}/opencode-guard %{buildroot}/usr/lib/opencode-sandbox/guard
+install -D -m 0644 %{_sourcedir}/LICENSE %{buildroot}/usr/share/licenses/opencode-sandbox/LICENSE
 
 %files
 /usr/bin/opencode-sandbox
 /usr/bin/opencode-project-init
 /usr/lib/opencode-sandbox/guard
+%license /usr/share/licenses/opencode-sandbox/LICENSE
 EOF
 	rpmbuild -bb --define "_topdir $RPM" "$RPM/SPECS/opencode-sandbox.spec" >/dev/null
 	cp "$RPM"/RPMS/*/*.rpm "$DIST/"
@@ -120,10 +123,11 @@ build_arch() {
 	mkdir -p "$ARC/usr/bin" "$ARC/usr/lib/opencode-sandbox"
 	cp "$PKG/usr/bin"/* "$ARC/usr/bin/"
 	cp "$PKG/usr/lib/opencode-sandbox/guard" "$ARC/usr/lib/opencode-sandbox/guard"
+	install -D -m 0644 LICENSE "$ARC/usr/share/licenses/opencode-sandbox/LICENSE"
 	cat >"$ARC/.PKGINFO" <<EOF
 pkgname = opencode-sandbox
-pkgver = $VER
-pkgdesc = Run OpenCode inside an isolated Docker sandbox
+pkgver = $VER-1
+pkgdesc = Run OpenCode inside an isolated container
 url = $HOMEPAGE
 builddate = $(date -u +%s)
 packager = $MAINTAINER
@@ -131,12 +135,13 @@ size = $(du -sb "$ARC" | cut -f1)
 arch = $HOST_ARCH
 license = GPL-3.0-or-later
 depend = bash
-depend = docker
+optdepend = docker: Docker runtime
+optdepend = podman: Podman runtime
 EOF
 	(
 		cd "$ARC"
-		bsdtar -cf .MTREE --format=mtree --options='!all,use-set,type,uid,gid,mode,time,size,md5,sha256' .PKGINFO usr
-		tar --zstd -cf "$DIST/opencode-sandbox-${VER}-1-${HOST_ARCH}.pkg.tar.zst" .PKGINFO .MTREE usr
+		bsdtar -cf .MTREE --format=mtree --uid 0 --gid 0 --options='!all,use-set,type,uid,gid,mode,time,size,md5,sha256' .PKGINFO usr
+		tar --zstd --owner=0 --group=0 --numeric-owner -cf "$DIST/opencode-sandbox-${VER}-1-${HOST_ARCH}.pkg.tar.zst" .PKGINFO .MTREE usr
 	)
 }
 
@@ -145,7 +150,7 @@ build_gentoo() {
 	cat >"$DIST/opencode-sandbox-${VER}.ebuild" <<EOF
 EAPI=8
 
-DESCRIPTION="Run OpenCode inside an isolated Docker sandbox"
+DESCRIPTION="Run OpenCode inside an isolated container"
 HOMEPAGE="$HOMEPAGE"
 SRC_URI="$HOMEPAGE/releases/download/v${VER}/opencode-sandbox-${VER}.tar.gz"
 
@@ -154,12 +159,17 @@ SLOT="0"
 KEYWORDS="~amd64 ~arm64"
 RESTRICT="network-sandbox"
 
-RDEPEND="app-shells/bash virtual/docker"
+RDEPEND="app-shells/bash || ( virtual/docker app-containers/podman )"
+
+src_compile() {
+    emake -B
+}
 
 src_install() {
     dobin opencode-sandbox opencode-project-init
     exeinto /usr/lib/opencode-sandbox
     newexe build/opencode-guard guard
+    dodoc LICENSE
 }
 EOF
 }

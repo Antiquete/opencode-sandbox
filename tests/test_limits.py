@@ -37,6 +37,16 @@ class LimitTests(unittest.TestCase):
                 values.append(arg[len(name) + 1:])
         return values
 
+    def test_no_network_omits_conflicting_podman_default_dns(self):
+        for option in ("--no-network", "--container-network=none"):
+            with self.subTest(option=option):
+                _, args = self.launch("podman", option)
+                self.assertEqual(self.values(args, "--dns"), [])
+        _, args = self.launch("docker", "--no-network")
+        self.assertEqual(self.values(args, "--dns"), ["1.1.1.1"])
+        _, args = self.launch("podman", "--no-network", "--container-dns=9.9.9.9")
+        self.assertEqual(self.values(args, "--dns"), ["9.9.9.9"])
+
     def test_fixed_defaults_ignore_ambient_resource_variables(self):
         for runtime in ("docker", "podman"):
             with self.subTest(runtime=runtime):

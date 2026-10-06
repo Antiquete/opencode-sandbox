@@ -264,6 +264,8 @@ if [[ $CONTAINERIZER == docker ]]; then
 	EMPTY_TMPFS=""
 # Podman
 elif [[ $CONTAINERIZER == podman ]]; then
+	# Podman rejects DNS configuration with no network.
+	[[ $NETWORK != none ]] || DNS_OPTS=()
 	# Security Options
 	SEC_OPTS=(--cap-drop ALL --security-opt no-new-privileges)
 	SEC_OPTS+=(--security-opt mask=/proc/cmdline)
