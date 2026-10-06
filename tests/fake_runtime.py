@@ -23,6 +23,8 @@ if args[:1] == ["info"] and "--format" in args:
         print(os.environ.get("TEST_DOCKER_SECURITY_OPTIONS", "[]"))
     elif "Rootless" in fmt:
         print(os.environ.get("TEST_PODMAN_ROOTLESS", "true"))
+    if os.environ.get(f"TEST_{runtime}_INFO_FORMAT_FAIL") == "1":
+        sys.exit(1)
 elif args[:2] == ["network", "inspect"] and "--format" in args:
     fmt = args[args.index("--format") + 1]
     if "Driver" in fmt:

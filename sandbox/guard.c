@@ -504,6 +504,12 @@ static void forward_signal(int sig) {
 
 int main(int argc, char **argv) {
     (void)argc;
+    const char *sandbox = getenv("OPENCODE_SANDBOX");
+    if (strcmp(argv[0], "/opt/opencode-sandbox/guard") ||
+        !sandbox || strcmp(sandbox, "1")) {
+        fprintf(stderr, "guard: run through opencode-sandbox\n");
+        return 1;
+    }
     umask(077);
     if (parse_memory_limit()) {
         fprintf(stderr, "guard: invalid OPENCODE_GUARD_MEMORY\n");
@@ -546,7 +552,6 @@ int main(int argc, char **argv) {
             _exit(125);
         close(listener);
         close(sock[1]);
-        argv[1] = "opencode";
         execvp("opencode", &argv[1]);
         perror("guard: exec");
         _exit(127);

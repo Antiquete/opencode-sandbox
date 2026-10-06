@@ -34,12 +34,35 @@ class GuardTests(unittest.TestCase):
         opencode.chmod(0o755)
         env = os.environ.copy()
         env.pop("OPENCODE_GUARD_MEMORY", None)
+        env["OPENCODE_SANDBOX"] = "1"
         if env_extra:
             env.update(env_extra)
         env["PATH"] = f"{binary_dir}:{env['PATH']}"
-        return subprocess.run([str(GUARD), "opencode", *map(str, args)],
-                              cwd=self.base, env=env,
+        return subprocess.run(["/opt/opencode-sandbox/guard", "opencode", *map(str, args)],
+                              executable=str(GUARD), cwd=self.base, env=env,
                               text=True, capture_output=True, timeout=timeout)
+
+    def test_direct_invocation_is_rejected(self):
+        env = os.environ.copy()
+        env.pop("OPENCODE_SANDBOX", None)
+        for marker in (None, "1"):
+            with self.subTest(marker=marker):
+                if marker:
+                    env["OPENCODE_SANDBOX"] = marker
+                result = subprocess.run(
+                    [str(GUARD), "opencode"], env=env,
+                    text=True, capture_output=True, timeout=5,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("run through opencode-sandbox", result.stderr)
+
+    def test_entrypoint_without_marker_is_rejected(self):
+        for marker in ("", "0"):
+            with self.subTest(marker=marker):
+                result = self.guarded("raise AssertionError('workload started')",
+                                      env_extra={"OPENCODE_SANDBOX": marker})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("run through opencode-sandbox", result.stderr)
 
     def test_host_metadata_and_aliases_denied(self):
         (self.base / "alias").symlink_to("/proc/cmdline")
