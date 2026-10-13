@@ -202,6 +202,9 @@ git config core.hooksPath .githooks
 ## PLANNED FEATURES
 
 - **Kata VM:** VM-backed container isolation
+- Mulitple harness support
+- Selective permissions for guard
+- Windows support
 
 ## LICENSE
 
