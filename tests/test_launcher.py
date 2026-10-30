@@ -50,6 +50,18 @@ class ExecutionTests(LauncherTestCase):
                 self.assertIn("Error:", result.stderr)
                 self.assertEqual(self.log.read_text(), "")
 
+    def test_logins_are_shared_between_sandboxes(self):
+        shared = self.home / ".local/share/opencode-sandbox"
+        (self.project / ".opencode-sandbox/auth.json").write_text('{"old":"login"}')
+        _, args = self.launch("docker")
+        self.assertEqual((shared / "auth.json").read_text(), '{"old":"login"}')
+        for name in ("auth.json", "mcp-auth.json"):
+            with self.subTest(name=name):
+                self.assertTrue(any(
+                    f'"src={shared / name}"' in arg and
+                    f"dst=/root/.local/share/opencode/{name}" in arg
+                    for arg in args))
+
     def test_summary_ignores_inherited_network_and_substring_lookalikes(self):
         for runtime in ("docker", "podman"):
             with self.subTest(runtime=runtime):
