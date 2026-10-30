@@ -62,6 +62,12 @@ class ExecutionTests(LauncherTestCase):
                     f"dst=/root/.local/share/opencode/{name}" in arg
                     for arg in args))
 
+    def test_local_login_keeps_auth_per_project(self):
+        _, args = self.launch("docker", "--local-login")
+        self.assertFalse(any(
+            "dst=/root/.local/share/opencode/auth.json" in arg for arg in args))
+        self.assertFalse((self.home / ".local/share/opencode-sandbox").exists())
+
     def test_summary_ignores_inherited_network_and_substring_lookalikes(self):
         for runtime in ("docker", "podman"):
             with self.subTest(runtime=runtime):

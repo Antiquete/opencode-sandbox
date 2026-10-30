@@ -80,6 +80,7 @@ opencode-sandbox --opencode-model=some-model
 | Option | Effect |
 | --- | --- |
 | `--edit-config` | Allow writes to shared host config<br>Default: Read-only |
+| `--local-login` | Keep logins per project instead of sharing them<br>Default: Shared |
 | `--no-pull` | Use the cached image<br>Default: Pull always |
 | `--no-network` | Request no network<br>Default: Runtime default |
 | `--no-guard` | Disable the guard<br>Default: Guard enabled unless using gVisor |

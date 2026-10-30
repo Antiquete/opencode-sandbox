@@ -82,6 +82,7 @@ GVISOR=0
 OPENCODE_OPTS=()
 
 CONFIG_MODE="readonly"
+SHARED_LOGIN=1
 MEM_LIMIT=4g
 CPUS_LIMIT=2
 PIDS_LIMIT=1024
@@ -106,6 +107,10 @@ while [ "$#" -gt 0 ]; do
 		;;
 	--no-guard)
 		GUARD=0
+		shift
+		;;
+	--local-login)
+		SHARED_LOGIN=0
 		shift
 		;;
 	--gvisor)
@@ -201,10 +206,12 @@ fi
 resolve STATE_DIR "$STATE_DIR"
 
 # Share logins between sandboxes
-AUTH_DIR="$HOME_DIR/.local/share/opencode-sandbox"
-mkdir -p -m 700 "$AUTH_DIR"
-[[ -s $AUTH_DIR/auth.json ]] || cp -- "$STATE_DIR/auth.json" "$AUTH_DIR/auth.json" 2>/dev/null || printf '{}\n' >"$AUTH_DIR/auth.json"
-[[ -s $AUTH_DIR/mcp-auth.json ]] || cp -- "$STATE_DIR/mcp-auth.json" "$AUTH_DIR/mcp-auth.json" 2>/dev/null || printf '{}\n' >"$AUTH_DIR/mcp-auth.json"
+if [[ $SHARED_LOGIN == 1 ]]; then
+	AUTH_DIR="$HOME_DIR/.local/share/opencode-sandbox"
+	mkdir -p -m 700 "$AUTH_DIR"
+	[[ -s $AUTH_DIR/auth.json ]] || cp -- "$STATE_DIR/auth.json" "$AUTH_DIR/auth.json" 2>/dev/null || printf '{}\n' >"$AUTH_DIR/auth.json"
+	[[ -s $AUTH_DIR/mcp-auth.json ]] || cp -- "$STATE_DIR/mcp-auth.json" "$AUTH_DIR/mcp-auth.json" 2>/dev/null || printf '{}\n' >"$AUTH_DIR/mcp-auth.json"
+fi
 # --------------------------------------------------------------------------
 
 # --------------------------------------------------------------------------
@@ -325,13 +332,17 @@ MOUNT_OPTS+=(
 	--mount "type=bind,$(mount_source "$STATE_DIR"),dst=/root/.local/share/opencode,$NONRECURSIVE,bind-propagation=rprivate"
 	--mount "type=tmpfs,dst=/workspace/.opencode-sandbox,readonly,tmpfs-size=4096$EMPTY_TMPFS"
 
-	# shared logins -> auth files
-	--mount "type=bind,$(mount_source "$AUTH_DIR/auth.json"),dst=/root/.local/share/opencode/auth.json,$NONRECURSIVE"
-	--mount "type=bind,$(mount_source "$AUTH_DIR/mcp-auth.json"),dst=/root/.local/share/opencode/mcp-auth.json,$NONRECURSIVE"
-
 	# config -> /root/.config/opencode
 	--mount "type=bind,$(mount_source "$CONFIG_DIR"),dst=/root/.config/opencode,${CONFIG_MODE:+$CONFIG_MODE,}$NONRECURSIVE,bind-propagation=rprivate"
 )
+
+# Shared logins -> auth files
+if [[ $SHARED_LOGIN == 1 ]]; then
+	MOUNT_OPTS+=(
+		--mount "type=bind,$(mount_source "$AUTH_DIR/auth.json"),dst=/root/.local/share/opencode/auth.json,$NONRECURSIVE"
+		--mount "type=bind,$(mount_source "$AUTH_DIR/mcp-auth.json"),dst=/root/.local/share/opencode/mcp-auth.json,$NONRECURSIVE"
+	)
+fi
 
 # gVisor's DMI symlink points into the already masked /sys/devices tree.
 [[ $GVISOR == 1 ]] || MOUNT_OPTS+=(--mount "type=tmpfs,dst=/sys/class/dmi/id,readonly,tmpfs-size=4096$EMPTY_TMPFS")
@@ -385,6 +396,7 @@ status "Image pull" "$PULL"
 status Guard "$GUARD"
 [[ $GUARD == 0 ]] || status "Guard binary" "$GUARD_BIN"
 [[ -z $CONFIG_MODE ]] && status "Edit config" 1 || status "Edit config" 0
+status "Shared login" "$SHARED_LOGIN"
 echo
 status "${GRN}Project${RST}" "$PROJECT (read/write)"
 status "${YEL}State${RST}" "$STATE_DIR (read/write)"
