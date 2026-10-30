@@ -603,9 +603,18 @@ static int emulate_open(const struct seccomp_notif *req, int listener) {
     err = EACCES;
     if (!valid(listener, req->id) || !check_open(opened, req->pid))
         goto done;
-    if (truncate && (how.flags & O_ACCMODE) != O_RDONLY && ftruncate(opened, 0)) {
-        err = errno;
-        goto done;
+    if (truncate && (how.flags & O_ACCMODE) != O_RDONLY) {
+        /* O_TRUNC is ignored for FIFOs and terminal devices, and device
+         * nodes must not be truncated just because the caller passed it. */
+        struct stat st;
+        if (fstat(opened, &st)) {
+            err = errno;
+            goto done;
+        }
+        if (S_ISREG(st.st_mode) && ftruncate(opened, 0)) {
+            err = errno;
+            goto done;
+        }
     }
     if (!requested_nonblock) {
         int flags = fcntl(opened, F_GETFL);

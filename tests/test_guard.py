@@ -494,6 +494,20 @@ for path, child in (('/proc', 'cmdline'), ('/sys', 'kernel'), ('/sys/fs/cgroup',
 ''')
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_truncation_only_applies_to_regular_files(self):
+        result = self.guarded('''import os, subprocess
+fd = os.open('/dev/null', os.O_WRONLY | os.O_TRUNC)
+os.write(fd, b'discarded')
+os.close(fd)
+subprocess.run(['sh', '-c', 'echo discarded >/dev/null'], check=True)
+with open('regular', 'w') as f:
+    f.write('content')
+fd = os.open('regular', os.O_WRONLY | os.O_TRUNC)
+assert os.fstat(fd).st_size == 0
+os.close(fd)
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_openat2_opath_reports_enosys_for_fallback(self):
         result = self.guarded('''import ctypes, errno, os
 class OpenHow(ctypes.Structure):
