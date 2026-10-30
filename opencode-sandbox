@@ -142,8 +142,10 @@ while [ "$#" -gt 0 ]; do
 		GUARD_BIN="${1#*=}"
 		shift
 		;;
+
 	*)
-		shift
+		echo "Error: unrecognized argument: $1" >&2
+		exit 1
 		;;
 	esac
 done

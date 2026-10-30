@@ -36,6 +36,20 @@ class ExecutionTests(LauncherTestCase):
                         expected += [option.replace("--opencode-", "--", 1) for option in options]
                         self.assertEqual(args[image + 1:], expected)
 
+    def test_unknown_arguments_are_rejected(self):
+        for argument in ("--model=example", "--container-memory", "stray"):
+            with self.subTest(argument=argument):
+                self.log.write_text("")
+                result = subprocess.run(
+                    ["bash", str(ROOT / "opencode-sandbox"), "--runtime=docker",
+                     "--no-guard", argument],
+                    cwd=self.project, env=self.env, input="y\n",
+                    text=True, capture_output=True, timeout=5,
+                )
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("Error:", result.stderr)
+                self.assertEqual(self.log.read_text(), "")
+
     def test_summary_ignores_inherited_network_and_substring_lookalikes(self):
         for runtime in ("docker", "podman"):
             with self.subTest(runtime=runtime):
@@ -82,7 +96,6 @@ class RoutingTests(LauncherTestCase):
             "--opencode-model=two words", "--opencode-empty=", "--opencode-value=a=b",
             "--opencode-model=last", "--container-label=two words",
             "--container-label=", "--container-label=a=b",
-            "unknown", "--model=ignored", "--docker-label=ignored",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(runs), 1)
@@ -96,7 +109,6 @@ class RoutingTests(LauncherTestCase):
         self.assertIn("-it", args)
         self.assertEqual(args[args.index("--pull") + 1], "never")
         self.assertEqual(args[args.index("--network") + 1], "none")
-        self.assertFalse(any("ignored" in arg or arg == "unknown" for arg in args))
 
     def test_auto_selection_and_exact_runsc_registration(self):
         cases = [
