@@ -151,9 +151,13 @@ static const struct sock_filter filter[] = {
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | ENOSYS),
 #endif
     /* Do not let the command replace this filter. */
-    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_prctl, 0, 4),
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_prctl, 0, 8),
     BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
     BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, PR_SET_SECCOMP, 0, 1),
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, PR_GET_SPECULATION_CTRL, 0, 1),
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, PR_SET_SPECULATION_CTRL, 0, 1),
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
     DENY_SYSCALL(seccomp),
@@ -182,6 +186,15 @@ static const struct sock_filter filter[] = {
     DENY_SYSCALL(bpf),
     DENY_SYSCALL(perf_event_open),
     DENY_SYSCALL(syslog),
+#ifdef __NR_statmount
+    DENY_SYSCALL(statmount),
+#endif
+#ifdef __NR_listmount
+    DENY_SYSCALL(listmount),
+#endif
+    DENY_SYSCALL(adjtimex),
+    DENY_SYSCALL(clock_adjtime),
+    DENY_SYSCALL(userfaultfd),
     BROKER_SYSCALL(statfs),
     BROKER_SYSCALL(fstatfs),
     BROKER_SYSCALL(sched_getaffinity),

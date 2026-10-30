@@ -180,6 +180,49 @@ else:
 ''')
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_times_does_not_expose_host_uptime(self):
+        result = self.guarded('''import os, time
+before = os.times()
+assert 0 <= before.elapsed < 60, before
+time.sleep(0.05)
+after = os.times()
+assert after.elapsed >= before.elapsed, (before, after)
+assert after.user == after.system == after.children_user == after.children_system == 0
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_sysfs_readlink_and_fd_aliases_denied(self):
+        (self.base / 'sys-alias').symlink_to('/sys/class/net')
+        (self.base / 'plain-link').symlink_to('plain-target')
+        result = self.guarded('''import os
+assert os.readlink('plain-link') == 'plain-target'
+assert os.readlink('/proc/self') == str(os.getpid())
+assert os.readlink('/proc/self/cwd') == os.getcwd()
+open('regular-file', 'w').close()
+try:
+    os.readlink('regular-file')
+except OSError as e:
+    assert e.errno == 22, e
+else:
+    raise AssertionError('readlink accepted a regular file')
+for path in ['/sys/class/net/lo', 'sys-alias/lo']:
+    try:
+        os.readlink(path)
+    except OSError as e:
+        assert e.errno in (1, 2, 13), e
+    else:
+        raise AssertionError('sysfs link leaked: ' + path)
+if os.path.lexists('/sys/class/net/lo'):
+    fd = os.open('/sys/class/net/lo', os.O_PATH | os.O_NOFOLLOW)
+    try:
+        os.readlink('', dir_fd=fd)
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('O_PATH link bypass')
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_relative_opens_denied(self):
         result = self.guarded('''import os
 fd = os.open('/proc', os.O_RDONLY | os.O_DIRECTORY)
@@ -481,6 +524,33 @@ assert ctypes.get_errno() == errno.EPERM
             result = self.guarded("import sys; sys.exit(int(sys.argv[1]))", code,
                                   timeout=15)
             self.assertEqual(result.returncode, code, result.stderr)
+
+    def test_filesystem_capacity_is_synthetic(self):
+        result = self.guarded('''import os
+for path in ('.', '/', '/proc', '/dev'):
+    info = os.statvfs(path)
+    assert info.f_blocks == 1048576, info
+    assert info.f_bfree == 524288, info
+fd = os.open('.', os.O_RDONLY | os.O_DIRECTORY)
+assert os.fstatvfs(fd).f_blocks == 1048576
+os.close(fd)
+for operation, error in [(lambda: os.statvfs('missing-volume'), 2),
+                         (lambda: os.fstatvfs(fd), 9),
+                         (lambda: os.fstatvfs(-100), 9)]:
+    try:
+        operation()
+    except OSError as e:
+        assert e.errno == error, e
+    else:
+        raise AssertionError('invalid filesystem request succeeded')
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_affinity_is_synthetic(self):
+        result = self.guarded('''import os
+assert os.sched_getaffinity(0) == {0}
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_cpuinfo_is_synthetic_through_aliases(self):
         (self.base / 'cpu-alias').symlink_to('/proc/cpuinfo')
