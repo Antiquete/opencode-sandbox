@@ -114,6 +114,14 @@ opencode-sandbox --opencode-model=some-model
   opencode-sandbox --runtime=docker --gvisor
   ```
 
+- **Pre-launch script:** `.opencode-sandbox/prelaunch.sh` runs inside the container before OpenCode on every launch
+
+  ```sh
+  # .opencode-sandbox/prelaunch.sh
+  # Install a runtime for local MCP servers
+  apk add --no-cache nodejs npm
+  ```
+
 ## DEFAULT SETTINGS
 
 - Image: `ghcr.io/anomalyco/opencode:latest`

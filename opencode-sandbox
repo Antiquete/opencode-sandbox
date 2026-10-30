@@ -361,6 +361,16 @@ if [[ $GUARD == 1 ]]; then
 	OPENCODE_OPTS=(opencode "${OPENCODE_OPTS[@]}")
 fi
 
+# Run the pre-launch script before opencode
+if [[ -f $STATE_DIR/prelaunch.sh ]]; then
+	if [[ $GUARD == 1 ]]; then
+		OPENCODE_OPTS=(sh -c '. /root/.local/share/opencode/prelaunch.sh; exec "$@"' prelaunch "${OPENCODE_OPTS[@]}")
+	else
+		CONTAINER_OPTS+=(--entrypoint sh)
+		OPENCODE_OPTS=(-c '. /root/.local/share/opencode/prelaunch.sh; exec "$@"' prelaunch opencode "${OPENCODE_OPTS[@]}")
+	fi
+fi
+
 CONTAINER_OPTS+=("${USER_OPTS[@]}")
 CONTAINER_OPTS+=("${SEC_OPTS[@]}")
 CONTAINER_OPTS+=("${MOUNT_OPTS[@]}")

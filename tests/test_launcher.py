@@ -68,6 +68,13 @@ class ExecutionTests(LauncherTestCase):
             "dst=/root/.local/share/opencode/auth.json" in arg for arg in args))
         self.assertFalse((self.home / ".local/share/opencode-sandbox").exists())
 
+    def test_prelaunch_script_runs_before_opencode(self):
+        (self.project / ".opencode-sandbox/prelaunch.sh").write_text("true\n")
+        for options in ([], ["--no-guard"]):
+            with self.subTest(options=options):
+                _, args = self.launch("docker", *options)
+                self.assertEqual(args[args.index("prelaunch") + 1], "opencode")
+
     def test_summary_ignores_inherited_network_and_substring_lookalikes(self):
         for runtime in ("docker", "podman"):
             with self.subTest(runtime=runtime):
