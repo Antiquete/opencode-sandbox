@@ -148,8 +148,8 @@ The launcher restricts container privileges, separates IPC and cgroup namespaces
 disables core dumps, and hides hardware information under `/sys`.
 
 The guard blocks sensitive system files and system calls. It reports sandbox
-identity and memory values instead of the host's, while allowing basic file
-information checks.
+identity, process records, CPU information and filesystem capacity instead of
+the host's, while allowing basic file information checks.
 
 ## SECURITY MATRIX — CONTAINERIZER COMPARISON
 
@@ -164,14 +164,21 @@ information checks.
 | `/sys/module`, `/sys/kernel`, `/sys/power`, `/sys/fs/pstore`<br>Kernel modules, power and persistent crash metadata | Blocked (tmpfs) | Blocked (tmpfs) | Blocked (tmpfs) |
 | `/proc/cmdline`<br>Kernel boot options | Denied (guard) | Blocked (mask) | Synthetic (runsc) |
 | `/proc/self/mountinfo`<br>Mount layout | Denied (guard) | Denied (guard) | Synthetic (runsc) |
-| `uname`<br>Kernel identity | Synthetic (guard) | Synthetic (guard) | Synthetic (runsc) |
 | `/proc/version`<br>Kernel build information | Denied (guard) | Denied (guard) | Synthetic (runsc) |
 | `/proc/sys/kernel/random/boot_id`<br>Host boot identifier | Denied (guard) | Denied (guard) | Synthetic (runsc) |
 | `/proc/uptime`<br>System uptime | Denied (guard) | Denied (guard) | Synthetic (runsc) |
-| `sysinfo`<br>Memory capacity and uptime | Synthetic (guard) | Synthetic (guard) | Partial (runsc)\* |
-| `/proc/cpuinfo`<br>File access only, not direct CPU queries | Denied (guard) | Blocked (mask) | Partial (runsc)\* |
+| `/proc/cpuinfo`<br>CPU model and features | Synthetic (guard) | Synthetic (guard) | Partial (runsc)\* |
 | `/proc/meminfo`<br>Host memory and swap | Denied (guard) | Blocked (mask) | Partial (runsc)\* |
-| Direct CPU queries (`CPUID`, affinity)<br>CPU model, features, available CPUs | Exposed | Exposed | Exposed |
+| `/proc/self/stat`, process records<br>Start time, CPU number, kernel fields | Synthetic (guard) | Synthetic (guard) | Synthetic (runsc) |
+| `/etc/hostname`, `/etc/hosts`, `/etc/resolv.conf`, machine ID<br>Host identity | Synthetic (guard) | Synthetic (guard) | Partial (runsc) |
+| Sysfs and cgroup symlink targets<br>Device and cgroup paths | Denied (guard) | Denied (guard) | Blocked (tmpfs) |
+| `uname`<br>Kernel identity | Synthetic (guard) | Synthetic (guard) | Synthetic (runsc) |
+| `sysinfo`<br>Memory capacity and uptime | Synthetic (guard) | Synthetic (guard) | Partial (runsc)\* |
+| `sched_getaffinity`<br>Available CPUs | Synthetic (guard) | Synthetic (guard) | Exposed |
+| `statfs`/`fstatfs`<br>Filesystem capacity and type | Synthetic (guard) | Synthetic (guard) | Synthetic (runsc) |
+| `times`<br>Elapsed clock | Synthetic (guard) | Synthetic (guard) | Synthetic (runsc) |
+| `CPUID`<br>CPU model, vendor, features | Exposed | Exposed | Exposed |
+| vDSO clocks, `sched_getcpu`<br>Host uptime and CPU number | Exposed | Exposed | Exposed |
 
 \* **gVisor notes (runsc, Systrap):**
 - `/proc/cpuinfo`
@@ -210,10 +217,10 @@ git config core.hooksPath .githooks
 
 ## PLANNED FEATURES
 
-- **Kata VM:** VM-backed container isolation
-- Mulitple harness support
-- Selective permissions for guard
-- Windows support
+- **Kata VM:** VM-backed container isolation, hide CPUID and vDSO clocks, support running ptrace
+- **Multiple harness support:** support for running harnesses other than opencode
+- **Selective permissions for guard**
+- **Windows support**
 
 ## LICENSE
 
