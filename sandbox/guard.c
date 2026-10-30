@@ -1,5 +1,6 @@
-/* OpenCode's container entrypoint: hide host details and broker content opens.
- * Metadata-only handles stay native; procfs, sysfs and cgroup content is denied. */
+/* Container entrypoint: broker file content and synthetic system information.
+ * Procfs is denied except synthetic records and guarded-tree process data.
+ * Requires the launcher's namespaces; not a hardware-anonymity boundary. */
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
@@ -17,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -43,6 +45,49 @@
 /* ---- System-call rules and sandbox identity ---- */
 
 static unsigned long memory_bytes = 4UL * 1024 * 1024 * 1024;
+static volatile pid_t target_pid;
+static unsigned long long start_ticks;
+
+static int proc_number(pid_t pid, const char *field, int base) {
+    char name[80], line[256];
+    snprintf(name, sizeof(name), "/proc/%d/status", pid);
+    FILE *file = fopen(name, "re");
+    if (!file)
+        return -1;
+    int value = -1;
+    while (fgets(line, sizeof(line), file)) {
+        if (strncmp(line, field, strlen(field)))
+            continue;
+        char *end;
+        unsigned long parsed = strtoul(line + strlen(field), &end, base);
+        if (end != line + strlen(field) && parsed <= INT_MAX)
+            value = (int)parsed;
+        break;
+    }
+    fclose(file);
+    return value;
+}
+
+static unsigned long long clock_ticks(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_BOOTTIME, &now);
+    unsigned long ticks = sysconf(_SC_CLK_TCK);
+    return (unsigned long long)now.tv_sec * ticks +
+           (unsigned long long)now.tv_nsec * ticks / 1000000000;
+}
+
+/* Only the guarded command's process tree may expose process records. */
+static int guarded_process(pid_t pid) {
+    for (int depth = 0; pid > 0 && depth < 1024; depth++) {
+        if (pid == target_pid)
+            return 1;
+        int parent = proc_number(pid, "PPid:", 10);
+        if (parent == pid)
+            return 0;
+        pid = parent;
+    }
+    return 0;
+}
 
 /* Parse runtime memory units without accepting overflow. */
 static int parse_memory_limit(void) {
@@ -180,34 +225,170 @@ static int target_path(pid_t pid, uint64_t addr, char out[4096]) {
     return ENAMETOOLONG;
 }
 
-/* Only file creation needs the caller's umask. */
-static int target_umask(pid_t tid) {
-    char name[80], line[256];
-    snprintf(name, sizeof(name), "/proc/%d/status", tid);
-    FILE *file = fopen(name, "re");
-    if (!file)
-        return -1;
-    unsigned mask = 0;
-    int found = 0;
-    while (fgets(line, sizeof(line), file)) {
-        if ((found = sscanf(line, "Umask: %o", &mask)) == 1)
-            break;
-    }
-    fclose(file);
-    return found == 1 ? (int)mask : -1;
+/* Check the opened file itself, not just the name used to reach it. */
+static int fd_path(int fd, char path[4096]) {
+    char name[80];
+    snprintf(name, sizeof(name), "/proc/self/fd/%d", fd);
+    ssize_t n = readlink(name, path, 4095);
+    if (n < 0)
+        return 0;
+    path[n] = 0;
+    return 1;
 }
 
-/* Check the opened file itself, not just the name used to reach it. */
-static int check_open(int fd) {
+/* A thread may refer to its thread group through /proc/self. */
+static pid_t target_group(pid_t tid) {
+    return proc_number(tid, "Tgid:", 10);
+}
+
+static int own_proc(const char *path, pid_t tid) {
+    char root[80];
+    snprintf(root, sizeof(root), "/proc/%d", target_group(tid));
+    size_t n = strlen(root);
+    return !strncmp(path, root, n) && (!path[n] || path[n] == '/');
+}
+
+static int check_open(int fd, pid_t tid) {
     struct stat file;
     struct statfs fs;
     if (fstat(fd, &file) || S_ISFIFO(file.st_mode) || fstatfs(fd, &fs))
         return 0;
-    return fs.f_type != SYSFS_MAGIC && fs.f_type != PROC_SUPER_MAGIC &&
+    if (fs.f_type == PROC_SUPER_MAGIC) {
+        char path[4096];
+        /* Own process directory listings contain namespace-local PIDs and
+         * filenames only. Content opens remain independently checked. */
+        if (!fd_path(fd, path))
+            return 0;
+        int pid = 0, offset = 0;
+        if (S_ISDIR(file.st_mode))
+            return !strcmp(path, "/proc") || own_proc(path, tid) ||
+                (sscanf(path, "/proc/%d%n", &pid, &offset) == 1 &&
+                 !path[offset] && guarded_process(pid));
+        return sscanf(path, "/proc/%d/%n", &pid, &offset) == 1 && offset &&
+               !strcmp(path + offset, "cmdline") && guarded_process(pid);
+    }
+    return fs.f_type != SYSFS_MAGIC &&
            fs.f_type != CGROUP_SUPER_MAGIC && fs.f_type != CGROUP2_SUPER_MAGIC;
 }
 
+/* Synthetic content is immutable, including through mmap and inherited fds. */
+static int content_fd(const char *text) {
+    int fd = syscall(SYS_memfd_create, "sandbox-info", MFD_CLOEXEC | MFD_ALLOW_SEALING);
+    if (fd < 0)
+        return -1;
+    size_t size = strlen(text);
+    if (write(fd, text, size) == (ssize_t)size && lseek(fd, 0, SEEK_SET) == 0 &&
+        !fcntl(fd, F_ADD_SEALS, F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK | F_SEAL_SEAL))
+        return fd;
+    int error = errno;
+    close(fd);
+    errno = error ? error : EIO;
+    return -1;
+}
+
+/* Match the resolved object, not the spelling supplied by an untrusted task. */
+static int synthetic_file(int opened, uint64_t flags) {
+    char path[4096];
+    struct statfs fs;
+    if (!fd_path(opened, path) || fstatfs(opened, &fs)) {
+        close(opened);
+        errno = EACCES;
+        return -1;
+    }
+    const char *text = NULL;
+    char process[8192];
+    int pid = 0, offset = 0;
+    if (fs.f_type == PROC_SUPER_MAGIC &&
+        sscanf(path, "/proc/%d/%n", &pid, &offset) == 1 && offset &&
+        !strcmp(path + offset, "stat") && guarded_process(pid)) {
+        /* Preserve process identity and ownership, not boot time, CPU number,
+         * kernel addresses, device identifiers or scheduler metadata. */
+        char original[8192];
+        ssize_t n = pread(opened, original, sizeof(original) - 1, 0);
+        if (n <= 0)
+            goto invalid;
+        original[n] = 0;
+        char *end = strrchr(original, ')');
+        if (!end || end[1] != ' ')
+            goto invalid;
+        size_t used = (size_t)(end - original + 1);
+        memcpy(process, original, used);
+        char *save = NULL;
+        char *part = strtok_r(end + 2, " \n", &save);
+        for (int field = 3; field <= 52; field++) {
+            if (!part)
+                goto invalid;
+            const char *value = "0";
+            char ticks[32];
+            if ((field >= 3 && field <= 6) || field == 14 || field == 15 ||
+                field == 20 || field == 23 || field == 24)
+                value = part;
+            if (field == 18)
+                value = "20";
+            if (field == 22) {
+                unsigned long long actual = strtoull(part, NULL, 10);
+                snprintf(ticks, sizeof(ticks), "%llu", actual > start_ticks ? actual - start_ticks : 1);
+                value = ticks;
+            }
+            int count = snprintf(process + used, sizeof(process) - used, " %s", value);
+            if (count < 0 || (size_t)count >= sizeof(process) - used)
+                goto invalid;
+            used += count;
+            part = strtok_r(NULL, " \n", &save);
+        }
+        process[used++] = '\n';
+        process[used] = 0;
+        text = process;
+    }
+    else if (fs.f_type == PROC_SUPER_MAGIC && !strcmp(path, "/proc/cpuinfo"))
+        text = "processor\t: 0\nmodel name\t: Sandbox CPU\n"
+#ifdef __x86_64__
+               "flags\t\t: sse sse2 pni\n"
+#endif
+               "\n";
+    if (!text)
+        return opened;
+    close(opened);
+    if ((flags & O_ACCMODE) != O_RDONLY) {
+        errno = EACCES;
+        return -1;
+    }
+    return content_fd(text);
+invalid:
+    close(opened);
+    errno = EACCES;
+    return -1;
+}
+
 /* ---- Mediating file opens ---- */
+
+static int caller_path(pid_t tid, char path[4096]) {
+    const char *suffix = NULL;
+    char root[80], translated[4096];
+    if (!strncmp(path, "/proc/self/", 11) || !strcmp(path, "/proc/self")) {
+        suffix = path + 10;
+        snprintf(root, sizeof(root), "/proc/%d", target_group(tid));
+    } else if (!strncmp(path, "/proc/thread-self/", 18) || !strcmp(path, "/proc/thread-self")) {
+        suffix = path + 17;
+        snprintf(root, sizeof(root), "/proc/%d/task/%d", target_group(tid), tid);
+    }
+    if (!suffix)
+        return 0;
+    int n = snprintf(translated, sizeof(translated), "%s%s", root, suffix);
+    if (n < 0 || n >= (int)sizeof(translated))
+        return ENAMETOOLONG;
+    memcpy(path, translated, n + 1);
+    return 0;
+}
+
+static int caller_base(pid_t tid, int dir) {
+    char name[80];
+    if (dir == AT_FDCWD)
+        snprintf(name, sizeof(name), "/proc/%d/cwd", tid);
+    else
+        snprintf(name, sizeof(name), "/proc/%d/fd/%d", tid, dir);
+    return open(name, O_PATH | O_CLOEXEC);
+}
 
 /* Copy arguments, pin the base, open and check the actual file, then inject it.
  * Return zero once ADDFD has replied to the caller, or an errno to send back. */
@@ -253,27 +434,37 @@ static int emulate_open(const struct seccomp_notif *req, int listener) {
         return err;
     if (!valid(listener, req->id))
         return ESRCH;
+    /* /proc/self is relative to the notifying process, not this supervisor. */
+    if (!(how.resolve & RESOLVE_IN_ROOT) && (err = caller_path(req->pid, path)))
+        return err;
     int mask = 077;
     if ((how.flags & O_CREAT) || (how.flags & O_TMPFILE) == O_TMPFILE) {
-        mask = target_umask(req->pid);
+        mask = proc_number(req->pid, "Umask:", 8);
         if (mask < 0)
             return EACCES;
     }
     int base = AT_FDCWD;
     /* IN_ROOT uses dirfd even for absolute paths. Pin it before resolving. */
     if (path[0] != '/' || (how.resolve & RESOLVE_IN_ROOT)) {
-        char procname[80];
-        if (dir == AT_FDCWD)
-            snprintf(procname, sizeof(procname), "/proc/%d/cwd", req->pid);
-        else
-            snprintf(procname, sizeof(procname), "/proc/%d/fd/%d", req->pid, dir);
-        base = open(procname, O_PATH | O_CLOEXEC);
+        base = caller_base(req->pid, dir);
         if (base < 0)
             return EBADF;
     }
     /* No proc magic-link shortcuts, and no FIFO may stall the broker. */
-    how.resolve |= RESOLVE_NO_MAGICLINKS;
+    /* The one magic link allowed is the caller's own executable, needed for
+     * executable hashing. Pin its proc directory before following it. Never
+     * permit fd/root/cwd links or relax explicit caller resolution flags. */
+    char basepath[4096];
+    int own_exe = base != AT_FDCWD && !strcmp(path, "exe") &&
+        fd_path(base, basepath) && own_proc(basepath, req->pid) &&
+        !strchr(basepath + 6, '/') && !how.resolve &&
+        !(how.flags & (O_NOFOLLOW | O_CREAT | O_TRUNC)) &&
+        (how.flags & O_ACCMODE) == O_RDONLY;
+    if (!own_exe)
+        how.resolve |= RESOLVE_NO_MAGICLINKS;
     how.flags |= O_NONBLOCK;
+    int truncate = !!(how.flags & O_TRUNC);
+    how.flags &= ~O_TRUNC;
     umask(mask);
     int opened = syscall(SYS_openat2, base, path, &how, sizeof(how));
     err = errno;
@@ -282,9 +473,16 @@ static int emulate_open(const struct seccomp_notif *req, int listener) {
         close(base);
     if (opened < 0)
         return err;
+    opened = synthetic_file(opened, how.flags | (truncate ? O_TRUNC : 0));
+    if (opened < 0)
+        return errno;
     err = EACCES;
-    if (!valid(listener, req->id) || !check_open(opened))
+    if (!valid(listener, req->id) || !check_open(opened, req->pid))
         goto done;
+    if (truncate && (how.flags & O_ACCMODE) != O_RDONLY && ftruncate(opened, 0)) {
+        err = errno;
+        goto done;
+    }
     if (!requested_nonblock) {
         int flags = fcntl(opened, F_GETFL);
         if (flags < 0 || fcntl(opened, F_SETFL, flags & ~O_NONBLOCK)) {
@@ -311,7 +509,6 @@ static void child_done(int sig) {
     (void)sig;
     finished = 1;
 }
-static volatile pid_t target_pid;
 static void forward_signal(int sig) {
     if (target_pid > 0)
         kill(target_pid, sig);
@@ -333,6 +530,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "guard: invalid OPENCODE_GUARD_MEMORY\n");
         return 1;
     }
+    start_ticks = clock_ticks();
     struct seccomp_notif_sizes sizes;
     if (syscall(SYS_seccomp, SECCOMP_GET_NOTIF_SIZES, 0, &sizes)) {
         perror("guard: seccomp notifications required");
