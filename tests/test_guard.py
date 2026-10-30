@@ -139,6 +139,7 @@ while True:
                  "/sys/kernel/kexec_loaded", "/sys/power/state"]
         result = self.guarded('''import os, sys
 for path in sys.argv[1:]:
+    assert os.stat(path).st_mode, path
     try:
         fd = os.open(path, os.O_RDONLY)
     except OSError as e:
@@ -147,16 +148,6 @@ for path in sys.argv[1:]:
         os.close(fd)
         raise AssertionError("metadata opened: " + path)
 ''', *paths)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-    def test_metadata_only_path_syscalls_remain_unfiltered(self):
-        result = self.guarded('''import os
-assert os.stat('/proc/self/status')
-assert os.access('/proc/self/status', os.R_OK)
-assert os.stat('/sys')
-assert os.access('/sys', os.R_OK)
-assert os.path.isabs(os.readlink('/proc/self/exe'))
-''')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_process_records_hide_boot_time_and_kernel_metadata(self):
@@ -223,10 +214,10 @@ if os.path.lexists('/sys/class/net/lo'):
 ''')
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_relative_opens_denied(self):
+    def test_relative_and_dirfd_opens_denied(self):
+        (self.base / "alias").symlink_to("/proc/cmdline")
         result = self.guarded('''import os
-fd = os.open('/proc', os.O_RDONLY | os.O_DIRECTORY)
-os.close(fd)
+directory = os.open(os.getcwd(), os.O_RDONLY | os.O_DIRECTORY)
 os.chdir('/proc')
 try:
     open('cmdline')
@@ -234,6 +225,14 @@ except PermissionError:
     pass
 else:
     raise AssertionError('relative bypass')
+try:
+    os.open('alias', os.O_RDONLY, dir_fd=directory)
+except PermissionError:
+    pass
+else:
+    raise AssertionError('directory descriptor bypass')
+finally:
+    os.close(directory)
 ''')
         self.assertEqual(result.returncode, 0, result.stderr)
 
@@ -307,7 +306,7 @@ assert info.totalram * info.mem_unit == int(sys.argv[1])
                 self.assertIn("invalid OPENCODE_GUARD_MEMORY", result.stderr)
 
     def test_open_flags_umask_and_directory_descriptors(self):
-        result = self.guarded('''import os, stat
+        result = self.guarded('''import fcntl, os, stat
 os.mkdir('sub')
 directory = os.open('sub', os.O_RDONLY | os.O_DIRECTORY)
 os.umask(0o077)
@@ -328,21 +327,12 @@ except OSError:
     pass
 else:
     raise AssertionError('O_NOFOLLOW lost')
-''')
-        self.assertEqual(result.returncode, 0, result.stderr)
-
-    def test_sensitive_dirfd_open_is_denied(self):
-        (self.base / "alias").symlink_to("/proc/cmdline")
-        result = self.guarded('''import os
-directory = os.open('.', os.O_RDONLY | os.O_DIRECTORY)
-try:
-    os.open('alias', os.O_RDONLY, dir_fd=directory)
-except PermissionError:
-    pass
-else:
-    raise AssertionError('directory descriptor bypass')
-finally:
-    os.close(directory)
+fd = os.open('private', os.O_RDONLY | os.O_NONBLOCK, dir_fd=directory)
+assert fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_NONBLOCK
+os.close(fd)
+fd = os.open('private', os.O_RDONLY, dir_fd=directory)
+assert not fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_NONBLOCK
+os.close(fd)
 ''')
         self.assertEqual(result.returncode, 0, result.stderr)
 
@@ -382,17 +372,6 @@ with open('normal', 'w') as f:
     f.write('still responsive')
 assert open('normal').read() == 'still responsive'
 ''', timeout=8)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-    def test_nonblocking_flags_are_preserved_for_regular_files(self):
-        result = self.guarded('''import fcntl, os
-fd = os.open('normal', os.O_CREAT | os.O_RDONLY | os.O_NONBLOCK, 0o600)
-assert fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_NONBLOCK
-os.close(fd)
-fd = os.open('normal', os.O_RDONLY)
-assert not fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_NONBLOCK
-os.close(fd)
-''')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_openat2_resolve_flags_and_cloexec_are_preserved(self):

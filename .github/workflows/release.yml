@@ -15,6 +15,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install packaging tools
         run: sudo apt-get update && sudo apt-get install -y rpm zstd libarchive-tools
+      - name: Run the test suite
+        run: REQUIRE_PACKAGE_TOOLS=1 make test
       - name: Build packages
         run: VER="${GITHUB_REF_NAME#v}" packaging/build.sh
       - name: Upload release assets

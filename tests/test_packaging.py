@@ -13,6 +13,14 @@ FUNCTIONS = SOURCE[SOURCE.index("stage_binaries() {"):SOURCE.index('\nmkdir -p "
 ARCH = platform.machine()
 
 
+def extract_tarball(archive, destination):
+    """Extract the archive; the safety filter only exists on Python 3.12+."""
+    try:
+        archive.extractall(destination, filter="data")
+    except TypeError:
+        archive.extractall(destination)
+
+
 class PackagingTests(unittest.TestCase):
     def build(self, function, tools=()):
         for tool in tools:
@@ -117,7 +125,7 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("|| ( virtual/docker app-containers/podman )", ebuild.read_text())
         import tarfile
         with tarfile.open(dist / "opencode-sandbox-0.0.0.tar.gz") as archive:
-            archive.extractall(dist, filter="data")
+            extract_tarball(archive, dist)
         source = dist / "opencode-sandbox-0.0.0"
         guard = source / "build/opencode-guard"
         guard.write_bytes(b"incompatible prebuilt guard")
