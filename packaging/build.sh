@@ -39,6 +39,7 @@ stage_binaries() {
 	mkdir -p "$PKG/usr/bin"
 	install -m 0755 opencode-sandbox "$PKG/usr/bin/"
 	install -m 0755 opencode-project-init "$PKG/usr/bin/"
+	install -D -m 0644 sandbox/skills/sandbox/SKILL.md "$PKG/usr/lib/opencode-sandbox/skills/sandbox/SKILL.md"
 }
 
 # Build the static seccomp guard and stage it for the binary packages.
@@ -54,6 +55,7 @@ build_tarball() {
 	cp opencode-sandbox opencode-project-init README.md LICENSE Makefile "$PKG/opencode-sandbox-$VER/"
 	cp build/opencode-guard "$PKG/opencode-sandbox-$VER/build/"
 	cp sandbox/guard.c "$PKG/opencode-sandbox-$VER/sandbox/"
+	cp -R sandbox/skills "$PKG/opencode-sandbox-$VER/sandbox/"
 	tar -czf "$DIST/opencode-sandbox-$VER.tar.gz" -C "$PKG" opencode-sandbox-$VER
 }
 
@@ -63,6 +65,7 @@ build_deb() {
 	mkdir -p "$DEB/DEBIAN" "$DEB/usr/bin" "$DEB/usr/lib/opencode-sandbox"
 	cp "$PKG/usr/bin"/* "$DEB/usr/bin/"
 	cp "$PKG/usr/lib/opencode-sandbox/guard" "$DEB/usr/lib/opencode-sandbox/guard"
+	cp -R "$PKG/usr/lib/opencode-sandbox/skills" "$DEB/usr/lib/opencode-sandbox/"
 	install -D -m 0644 LICENSE "$DEB/usr/share/doc/opencode-sandbox/copyright"
 	cat >"$DEB/DEBIAN/control" <<EOF
 Package: opencode-sandbox
@@ -84,6 +87,7 @@ build_rpm() {
 	RPM="$PKG/rpmbuild"
 	mkdir -p "$RPM/SPECS" "$RPM/SOURCES"
 	cp opencode-sandbox opencode-project-init build/opencode-guard LICENSE "$RPM/SOURCES/"
+	cp -R sandbox/skills "$RPM/SOURCES/skills"
 	cat >"$RPM/SPECS/opencode-sandbox.spec" <<EOF
 Name: opencode-sandbox
 Version: $VER
@@ -105,12 +109,14 @@ install -d %{buildroot}/usr/lib/opencode-sandbox
 install -m 0755 %{_sourcedir}/opencode-sandbox %{buildroot}/usr/bin/
 install -m 0755 %{_sourcedir}/opencode-project-init %{buildroot}/usr/bin/
 install -m 0755 %{_sourcedir}/opencode-guard %{buildroot}/usr/lib/opencode-sandbox/guard
+install -D -m 0644 %{_sourcedir}/skills/sandbox/SKILL.md %{buildroot}/usr/lib/opencode-sandbox/skills/sandbox/SKILL.md
 install -D -m 0644 %{_sourcedir}/LICENSE %{buildroot}/usr/share/licenses/opencode-sandbox/LICENSE
 
 %files
 /usr/bin/opencode-sandbox
 /usr/bin/opencode-project-init
 /usr/lib/opencode-sandbox/guard
+/usr/lib/opencode-sandbox/skills/sandbox/SKILL.md
 %license /usr/share/licenses/opencode-sandbox/LICENSE
 EOF
 	rpmbuild -bb --define "_topdir $RPM" "$RPM/SPECS/opencode-sandbox.spec" >/dev/null
@@ -123,6 +129,7 @@ build_arch() {
 	mkdir -p "$ARC/usr/bin" "$ARC/usr/lib/opencode-sandbox"
 	cp "$PKG/usr/bin"/* "$ARC/usr/bin/"
 	cp "$PKG/usr/lib/opencode-sandbox/guard" "$ARC/usr/lib/opencode-sandbox/guard"
+	cp -R "$PKG/usr/lib/opencode-sandbox/skills" "$ARC/usr/lib/opencode-sandbox/"
 	install -D -m 0644 LICENSE "$ARC/usr/share/licenses/opencode-sandbox/LICENSE"
 	cat >"$ARC/.PKGINFO" <<EOF
 pkgname = opencode-sandbox
@@ -169,6 +176,8 @@ src_install() {
     dobin opencode-sandbox opencode-project-init
     exeinto /usr/lib/opencode-sandbox
     newexe build/opencode-guard guard
+    insinto /usr/lib/opencode-sandbox/skills
+    doins sandbox/skills/sandbox/SKILL.md
     dodoc LICENSE
 }
 EOF

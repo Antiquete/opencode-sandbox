@@ -67,7 +67,7 @@ class PackagingTests(unittest.TestCase):
         dist = self.build("build_tarball")
         import tarfile
         with tarfile.open(dist / "opencode-sandbox-0.0.0.tar.gz") as archive:
-            for name in ("opencode-sandbox", "opencode-project-init", "build/opencode-guard", "sandbox/guard.c", "Makefile"):
+            for name in ("opencode-sandbox", "opencode-project-init", "build/opencode-guard", "sandbox/guard.c", "sandbox/skills/sandbox/SKILL.md", "Makefile"):
                 member = archive.getmember("opencode-sandbox-0.0.0/" + name)
                 self.assertTrue(member.isfile())
                 self.assertEqual(archive.extractfile(member).read(), (ROOT / name).read_bytes())
@@ -77,6 +77,7 @@ class PackagingTests(unittest.TestCase):
         package = next(dist.glob("*.deb"))
         listing = subprocess.check_output(["dpkg-deb", "-c", str(package)], text=True)
         self.assertIn("./usr/lib/opencode-sandbox/guard", listing)
+        self.assertIn("./usr/lib/opencode-sandbox/skills/sandbox/SKILL.md", listing)
         self.assertIn("./usr/bin/opencode-sandbox", listing)
         self.assertIn("./usr/share/doc/opencode-sandbox/copyright", listing)
         dependencies = subprocess.check_output(["dpkg-deb", "-f", str(package), "Depends"], text=True)
@@ -87,6 +88,7 @@ class PackagingTests(unittest.TestCase):
         package = next(dist.glob("*.rpm"))
         listing = subprocess.check_output(["rpm", "-qlp", str(package)], text=True)
         self.assertIn("/usr/lib/opencode-sandbox/guard", listing)
+        self.assertIn("/usr/lib/opencode-sandbox/skills/sandbox/SKILL.md", listing)
         self.assertIn("/usr/bin/opencode-sandbox", listing)
         self.assertIn("/usr/share/licenses/opencode-sandbox/LICENSE", listing)
         dependencies = subprocess.check_output(["rpm", "-qp", "--requires", str(package)], text=True)
@@ -97,6 +99,7 @@ class PackagingTests(unittest.TestCase):
         package = dist / f"opencode-sandbox-0.0.0-1-{ARCH}.pkg.tar.zst"
         listing = subprocess.check_output(["bsdtar", "-tf", str(package)], text=True)
         self.assertIn("usr/lib/opencode-sandbox/guard", listing)
+        self.assertIn("usr/lib/opencode-sandbox/skills/sandbox/SKILL.md", listing)
         self.assertEqual(subprocess.check_output([
             "bsdtar", "-xOf", str(package), "usr/share/licenses/opencode-sandbox/LICENSE"
         ]), (ROOT / "LICENSE").read_bytes())
@@ -121,6 +124,7 @@ class PackagingTests(unittest.TestCase):
         ebuild = dist / "opencode-sandbox-0.0.0.ebuild"
         subprocess.run(["bash", "-n", str(ebuild)], check=True)
         self.assertIn("newexe build/opencode-guard guard", ebuild.read_text())
+        self.assertIn("doins sandbox/skills/sandbox/SKILL.md", ebuild.read_text())
         self.assertIn("dodoc LICENSE", ebuild.read_text())
         self.assertIn("|| ( virtual/docker app-containers/podman )", ebuild.read_text())
         import tarfile

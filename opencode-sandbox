@@ -166,6 +166,12 @@ if [[ ! -e $CONFIG_DIR/.gitignore && ! -L $CONFIG_DIR/.gitignore ]]; then
 	)
 fi
 
+# Find the sandbox skill
+SKILL="$(realpath -m -- "${BASH_SOURCE[0]}")"
+SKILL="${SKILL%/*}/sandbox/skills/sandbox/SKILL.md"
+[[ -f $SKILL ]] || SKILL="/usr/lib/opencode-sandbox/skills/sandbox/SKILL.md"
+[[ -f $SKILL ]] || SKILL=""
+
 # Project Directory
 resolve PROJECT .
 # Block /
@@ -319,6 +325,11 @@ MOUNT_OPTS+=(
 
 # gVisor's DMI symlink points into the already masked /sys/devices tree.
 [[ $GVISOR == 1 ]] || MOUNT_OPTS+=(--mount "type=tmpfs,dst=/sys/class/dmi/id,readonly,tmpfs-size=4096$EMPTY_TMPFS")
+
+# Mount the sandbox skill
+if [[ -n $SKILL ]]; then
+	MOUNT_OPTS+=(--mount "type=bind,$(mount_source "$SKILL"),dst=/root/.agents/skills/sandbox/SKILL.md,readonly")
+fi
 
 # Add guard
 if [[ $GUARD == 1 ]]; then
