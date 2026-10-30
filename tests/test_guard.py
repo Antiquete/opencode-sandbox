@@ -132,6 +132,27 @@ assert os.path.isabs(os.readlink('/proc/self/exe'))
 ''')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_process_records_hide_boot_time_and_kernel_metadata(self):
+        result = self.guarded('''import os, subprocess, sys
+paths = ['/proc/self/stat', '/proc/%d/stat' % os.getpid()]
+for path in paths:
+    fields = open(path).read().rsplit(')', 1)[1].split()
+    assert len(fields) == 50, fields
+    assert int(fields[19]) < 60 * os.sysconf('SC_CLK_TCK'), fields
+    for number in (7, 8, 9, 21, 25, 26, 27, 28, 29, 30, 35, 36, 37, 38, 39, 40, 41, 42):
+        assert fields[number - 3] == '0', (number, fields)
+assert open('/proc/self/cmdline', 'rb').read()
+child = "import os; p='/proc/%d/stat'; assert open(p).read()" % os.getpid()
+subprocess.run([sys.executable, '-c', child], check=True)
+try:
+    open('/proc/%d/stat' % os.getppid())
+except PermissionError:
+    pass
+else:
+    raise AssertionError('supervisor metadata exposed')
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_relative_opens_denied(self):
         result = self.guarded('''import os
 fd = os.open('/proc', os.O_RDONLY | os.O_DIRECTORY)
@@ -433,6 +454,47 @@ assert ctypes.get_errno() == errno.EPERM
             result = self.guarded("import sys; sys.exit(int(sys.argv[1]))", code,
                                   timeout=15)
             self.assertEqual(result.returncode, code, result.stderr)
+
+    def test_cpuinfo_is_synthetic_through_aliases(self):
+        (self.base / 'cpu-alias').symlink_to('/proc/cpuinfo')
+        result = self.guarded('''import os
+expected = None
+for path in ('/proc/cpuinfo', '/proc//./cpuinfo', 'cpu-alias'):
+    content = open(path).read()
+    assert 'Sandbox CPU' in content, content
+    assert content.count('processor') == 1, content
+    if expected is not None:
+        assert content == expected
+    expected = content
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_own_proc_directory_and_executable_hashing(self):
+        result = self.guarded('''import errno, hashlib, os
+root = os.open('/proc/self', os.O_RDONLY | os.O_DIRECTORY)
+assert 'exe' in os.listdir(root)
+image = os.open('exe', os.O_RDONLY | os.O_CLOEXEC, dir_fd=root)
+with os.fdopen(image, 'rb') as f:
+    actual = hashlib.sha256(f.read()).digest()
+with open(os.readlink('/proc/self/exe'), 'rb') as f:
+    assert actual == hashlib.sha256(f.read()).digest()
+for path in ('status', 'mountinfo', 'auxv', 'uid_map'):
+    try:
+        os.open(path, os.O_RDONLY, dir_fd=root)
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('sensitive proc file opened: ' + path)
+for path in ('root/etc/passwd', 'cwd', 'fd/0'):
+    try:
+        os.open(path, os.O_RDONLY, dir_fd=root)
+    except OSError as e:
+        assert e.errno in (errno.ELOOP, errno.EACCES, errno.ENOENT), e
+    else:
+        raise AssertionError('proc magic link opened: ' + path)
+os.close(root)
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_concurrent_file_opens(self):
         result = self.guarded('''import concurrent.futures

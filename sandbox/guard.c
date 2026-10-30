@@ -286,6 +286,12 @@ static int content_fd(const char *text) {
     return -1;
 }
 
+static int same_file(int fd, const char *name) {
+    struct stat a, b;
+    return !fstat(fd, &a) && !stat(name, &b) &&
+           a.st_dev == b.st_dev && a.st_ino == b.st_ino;
+}
+
 /* Match the resolved object, not the spelling supplied by an untrusted task. */
 static int synthetic_file(int opened, uint64_t flags) {
     char path[4096];
@@ -346,10 +352,18 @@ static int synthetic_file(int opened, uint64_t flags) {
                "flags\t\t: sse sse2 pni\n"
 #endif
                "\n";
+    else if (same_file(opened, "/etc/hostname"))
+        text = "opencode\n";
+    else if (same_file(opened, "/etc/hosts"))
+        text = "127.0.0.1 localhost opencode\n::1 localhost ip6-localhost opencode\n";
+    else if (same_file(opened, "/etc/resolv.conf"))
+        text = "nameserver 1.1.1.1\n";
+    else if (same_file(opened, "/etc/machine-id") || same_file(opened, "/var/lib/dbus/machine-id"))
+        text = "00000000000000000000000000000000\n";
     if (!text)
         return opened;
     close(opened);
-    if ((flags & O_ACCMODE) != O_RDONLY) {
+    if ((flags & O_ACCMODE) != O_RDONLY || (flags & (O_TRUNC | O_CREAT))) {
         errno = EACCES;
         return -1;
     }
