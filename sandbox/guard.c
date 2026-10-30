@@ -26,6 +26,7 @@
 #include <sys/syscall.h>
 #include <sys/sysinfo.h>
 #include <sys/types.h>
+#include <sys/times.h>
 #include <sys/uio.h>
 #include <sys/utsname.h>
 #include <sys/wait.h>
@@ -181,6 +182,15 @@ static const struct sock_filter filter[] = {
     DENY_SYSCALL(bpf),
     DENY_SYSCALL(perf_event_open),
     DENY_SYSCALL(syslog),
+    BROKER_SYSCALL(statfs),
+    BROKER_SYSCALL(fstatfs),
+    BROKER_SYSCALL(sched_getaffinity),
+    BROKER_SYSCALL(getcpu),
+    BROKER_SYSCALL(times),
+#ifdef __NR_readlink
+    BROKER_SYSCALL(readlink),
+#endif
+    BROKER_SYSCALL(readlinkat),
 #ifdef __NR_open
     OPEN_SYSCALL(open, 1),
 #endif
@@ -402,6 +412,93 @@ static int caller_base(pid_t tid, int dir) {
     else
         snprintf(name, sizeof(name), "/proc/%d/fd/%d", tid, dir);
     return open(name, O_PATH | O_CLOEXEC);
+}
+
+static int validate_filesystem(const struct seccomp_notif *req) {
+    int fd;
+    if (req->data.nr == (uint32_t)__NR_fstatfs) {
+        if ((int)req->data.args[0] < 0)
+            return EBADF;
+        fd = caller_base(req->pid, (int)req->data.args[0]);
+        if (fd < 0)
+            return EBADF;
+    } else {
+        char path[4096];
+        int error = target_path(req->pid, req->data.args[0], path);
+        if (!error)
+            error = caller_path(req->pid, path);
+        if (error)
+            return error;
+        int base = path[0] == '/' ? AT_FDCWD : caller_base(req->pid, AT_FDCWD);
+        fd = openat(base, path, O_PATH | O_CLOEXEC);
+        error = errno;
+        if (base != AT_FDCWD)
+            close(base);
+        if (fd < 0)
+            return error;
+    }
+    close(fd);
+    return 0;
+}
+
+static int emulate_readlink(const struct seccomp_notif *req) {
+    int dir = (int)req->data.args[0];
+    uint64_t name = req->data.args[1], out = req->data.args[2], size = req->data.args[3];
+#ifdef __NR_readlink
+    if (req->data.nr == (uint32_t)__NR_readlink) {
+        dir = AT_FDCWD;
+        name = req->data.args[0];
+        out = req->data.args[1];
+        size = req->data.args[2];
+    }
+#endif
+    if (!size)
+        return -EINVAL;
+    char path[4096], result[4096];
+    int error = target_path(req->pid, name, path);
+    if (error)
+        return -error;
+    if (!strcmp(path, "/proc/self") || !strcmp(path, "/proc/thread-self")) {
+        int n = !strcmp(path, "/proc/self") ?
+            snprintf(result, sizeof(result), "%d", target_group(req->pid)) :
+            snprintf(result, sizeof(result), "%d/task/%d", target_group(req->pid), req->pid);
+        size_t count = size < (uint64_t)n ? (size_t)size : (size_t)n;
+        error = target_memory(req->pid, out, result, count, 1);
+        return error ? -error : (int)count;
+    }
+    /* Readlink must observe the caller's exe/cwd, not the broker's. */
+    error = caller_path(req->pid, path);
+    if (error)
+        return -error;
+    int base = AT_FDCWD;
+    if (path[0] != '/') {
+        base = caller_base(req->pid, dir);
+        if (base < 0)
+            return -EBADF;
+    }
+    int fd = path[0] ? openat(base, path, O_PATH | O_NOFOLLOW | O_CLOEXEC) : dup(base);
+    error = errno;
+    if (base != AT_FDCWD)
+        close(base);
+    if (fd < 0)
+        return -error;
+    struct statfs fs;
+    struct stat st;
+    ssize_t n = -1;
+    if (fstatfs(fd, &fs) || fs.f_type == SYSFS_MAGIC ||
+        fs.f_type == CGROUP_SUPER_MAGIC || fs.f_type == CGROUP2_SUPER_MAGIC)
+        error = EACCES;
+    else if (fstat(fd, &st) || !S_ISLNK(st.st_mode))
+        error = EINVAL;
+    else {
+        n = readlinkat(fd, "", result, size < sizeof(result) ? size : sizeof(result));
+        error = errno;
+    }
+    close(fd);
+    if (n < 0)
+        return -error;
+    error = target_memory(req->pid, out, result, n, 1);
+    return error ? -error : (int)n;
 }
 
 /* Copy arguments, pin the base, open and check the actual file, then inject it.
@@ -646,7 +743,17 @@ int main(int argc, char **argv) {
         resp->id = req->id;
         if (!valid(listener, req->id))
             continue;
-        if (req->data.nr == (uint32_t)__NR_uname) {
+        if (req->data.nr == (uint32_t)__NR_readlinkat
+#ifdef __NR_readlink
+            || req->data.nr == (uint32_t)__NR_readlink
+#endif
+        ) {
+            int result = emulate_readlink(req);
+            if (result < 0)
+                resp->error = result;
+            else
+                resp->val = result;
+        } else if (req->data.nr == (uint32_t)__NR_uname) {
             struct utsname info = {.sysname = "Linux",
                                    .nodename = "opencode",
                                    .release = "6.1.0-sandbox",
@@ -663,6 +770,36 @@ int main(int argc, char **argv) {
                                    .procs = 1,
                                    .mem_unit = 1};
             resp->error = -target_memory(req->pid, req->data.args[0], &info, sizeof(info), 1);
+        } else if (req->data.nr == (uint32_t)__NR_sched_getaffinity) {
+            /* The ABI returns the kernel mask size, not the supplied size. */
+            unsigned long mask = 1;
+            resp->error = req->data.args[1] < sizeof(mask) ? -EINVAL :
+                -target_memory(req->pid, req->data.args[2], &mask, sizeof(mask), 1);
+            if (!resp->error)
+                resp->val = sizeof(mask);
+        } else if (req->data.nr == (uint32_t)__NR_getcpu) {
+            unsigned zero = 0;
+            for (int i = 0; i < 2 && !resp->error; i++)
+                if (req->data.args[i])
+                    resp->error = -target_memory(req->pid, req->data.args[i],
+                                                 &zero, sizeof(zero), 1);
+        } else if (req->data.nr == (uint32_t)__NR_times) {
+            struct tms info = {0};
+            if (req->data.args[0])
+                resp->error = -target_memory(req->pid, req->data.args[0], &info, sizeof(info), 1);
+            resp->val = clock_ticks() - start_ticks;
+        } else if (req->data.nr == (uint32_t)__NR_statfs ||
+                   req->data.nr == (uint32_t)__NR_fstatfs) {
+            /* Never query backing storage: capacity, usage, fsid and inode
+             * counts fingerprint the host. Report a fixed virtual volume. */
+            struct statfs info = {.f_type = TMPFS_MAGIC, .f_bsize = 4096,
+                                  .f_blocks = 1048576, .f_bfree = 524288,
+                                  .f_bavail = 524288, .f_files = 1048576,
+                                  .f_ffree = 524288, .f_namelen = 255,
+                                  .f_frsize = 4096};
+            int error = validate_filesystem(req);
+            resp->error = error ? -error : -target_memory(req->pid, req->data.args[1],
+                                                          &info, sizeof(info), 1);
         } else {
             resp->error = -emulate_open(req, listener);
             if (!resp->error)

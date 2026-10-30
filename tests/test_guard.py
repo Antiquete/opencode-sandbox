@@ -48,6 +48,33 @@ class GuardTests(unittest.TestCase):
                               "space value", "", "a=b", "--flag")
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_identity_files_are_synthetic_and_sealed(self):
+        (self.base / 'hosts-alias').symlink_to('/etc/hosts')
+        result = self.guarded('''
+import os, mmap
+expected = {
+    '/etc/hosts': '127.0.0.1 localhost opencode\\n::1 localhost ip6-localhost opencode\\n',
+    '/etc/hostname': 'opencode\\n',
+    '/etc/resolv.conf': 'nameserver 1.1.1.1\\n',
+    'hosts-alias': '127.0.0.1 localhost opencode\\n::1 localhost ip6-localhost opencode\\n',
+}
+for path, text in expected.items():
+    if not os.path.exists(path):
+        continue
+    with open(path) as f:
+        assert f.read() == text, path
+        try:
+            os.write(f.fileno(), b'changed')
+        except OSError:
+            pass
+        else:
+            raise AssertionError('synthetic file writable')
+for path in ['/etc/machine-id', '/var/lib/dbus/machine-id']:
+    if os.path.exists(path):
+        assert open(path).read() == '0' * 32 + '\\n'
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_missing_placeholder_is_rejected(self):
         result = self.guarded("raise AssertionError('workload started')", placeholder=False)
         self.assertNotEqual(result.returncode, 0)
