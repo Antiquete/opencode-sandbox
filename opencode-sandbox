@@ -208,7 +208,8 @@ resolve STATE_DIR "$STATE_DIR"
 # Share logins between sandboxes
 if [[ $SHARED_LOGIN == 1 ]]; then
 	AUTH_DIR="$HOME_DIR/.local/share/opencode-sandbox"
-	mkdir -p -m 700 "$AUTH_DIR"
+	mkdir -p "$AUTH_DIR"
+	chmod 700 "$AUTH_DIR"
 	[[ -s $AUTH_DIR/auth.json ]] || cp -- "$STATE_DIR/auth.json" "$AUTH_DIR/auth.json" 2>/dev/null || printf '{}\n' >"$AUTH_DIR/auth.json"
 	[[ -s $AUTH_DIR/mcp-auth.json ]] || cp -- "$STATE_DIR/mcp-auth.json" "$AUTH_DIR/mcp-auth.json" 2>/dev/null || printf '{}\n' >"$AUTH_DIR/mcp-auth.json"
 fi
