@@ -24,7 +24,7 @@ class GuardTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.base = Path(self.temp.name)
 
-    def guarded(self, code, *args, timeout=30, env_extra=None, placeholder=True):
+    def guarded(self, code, *args, timeout=30, env_extra=None, placeholder=True, preexec_fn=None):
         binary_dir = self.base / "bin"
         binary_dir.mkdir(exist_ok=True)
         opencode = binary_dir / "opencode"
@@ -42,7 +42,7 @@ class GuardTests(unittest.TestCase):
         env["PATH"] = f"{binary_dir}:{env['PATH']}"
         return subprocess.run(["/opt/opencode-sandbox/guard", *(["opencode"] if placeholder else []), *map(str, args)],
                               executable=str(GUARD), cwd=self.base, env=env,
-                              text=True, capture_output=True, timeout=timeout)
+                              text=True, capture_output=True, timeout=timeout, preexec_fn=preexec_fn)
 
     def test_arguments_preserve_boundaries(self):
         result = self.guarded("import sys\nassert sys.argv[1:] == ['space value', '', 'a=b', '--flag']\n",
@@ -223,6 +223,56 @@ else:
         rotated = (self.base / "guard-blocked.0.log").read_text()
         self.assertIn("Blocked:/proc/1/environ", current)
         self.assertIn("Blocked:/proc/1/environ", rotated)
+
+    def test_file_policy_when_direct_memory_reads_are_denied(self):
+        def deny_memory_reads():
+            import ctypes
+            class Filter(ctypes.Structure):
+                _fields_ = [('code', ctypes.c_ushort), ('jt', ctypes.c_ubyte),
+                            ('jf', ctypes.c_ubyte), ('k', ctypes.c_uint)]
+            class Program(ctypes.Structure):
+                _fields_ = [('length', ctypes.c_ushort), ('filter', ctypes.POINTER(Filter))]
+            syscall = 310 if os.uname().machine == 'x86_64' else 270
+            rules = (Filter * 4)(Filter(0x20, 0, 0, 0), Filter(0x15, 0, 1, syscall),
+                                 Filter(0x06, 0, 0, 0x50001), Filter(0x06, 0, 0, 0x7fff0000))
+            program = Program(4, rules)
+            libc = ctypes.CDLL(None)
+            assert libc.prctl(38, 1, 0, 0, 0) == 0
+            assert libc.prctl(22, 2, ctypes.byref(program), 0, 0) == 0
+        result = self.guarded('''import os
+with open('ordinary-file', 'w') as f:
+    f.write('allowed')
+assert open('ordinary-file').read() == 'allowed'
+os.symlink('/proc/cmdline', 'blocked-alias')
+for path in ('/proc/cmdline', 'blocked-alias'):
+    try:
+        open(path)
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('protected file exposed: ' + path)
+''', preexec_fn=deny_memory_reads)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_process_memory_statistics_are_sanitized(self):
+        log = self.base / 'guard-blocked.log'
+        result = self.guarded('''import os
+os.symlink('/proc/%d/statm' % os.getpid(), 'statm-alias')
+for path in ('/proc/self/statm', 'statm-alias'):
+    for _ in range(100):
+        fields = list(map(int, open(path).read().split()))
+        assert len(fields) == 7 and all(n >= 0 for n in fields), fields
+        assert fields[0] >= fields[1] and fields[0] >= fields[5], fields
+        assert fields[2:5] == [0, 0, 0] and fields[6] == 0, fields
+try:
+    open('/proc/%d/statm' % os.getppid())
+except PermissionError:
+    pass
+else:
+    raise AssertionError('supervisor memory statistics exposed')
+''', env_extra={'OPENCODE_GUARD_LOG': str(log)})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('Blocked:/proc/self/statm', log.read_text())
 
     def test_open_arguments_on_protected_pages(self):
         result = self.guarded('''import ctypes, errno, mmap, os

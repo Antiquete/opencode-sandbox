@@ -281,8 +281,8 @@ static int target_memory(pid_t pid, uint64_t addr, void *buf, size_t len, int to
                             pid, &local, 1, &remote, 1, 0);
         if (n < 0 && errno == EINTR)
             continue;
-        /* Read arguments even while their pages are protected. */
-        if (n < 0 && errno == EFAULT && !to_target) {
+        /* Read arguments when direct memory access is unavailable. */
+        if (n < 0 && (errno == EFAULT || errno == EPERM) && !to_target) {
             char name[80];
             snprintf(name, sizeof(name), "/proc/%d/mem", pid);
             int fd = open(name, O_RDONLY | O_CLOEXEC);
@@ -440,6 +440,21 @@ static int synthetic_file(int opened, uint64_t flags) {
         }
         process[used++] = '\n';
         process[used] = 0;
+        text = process;
+    }
+    else if (fs.f_type == PROC_SUPER_MAGIC &&
+             sscanf(path, "/proc/%d/%n", &pid, &offset) == 1 && offset &&
+             !strcmp(path + offset, "statm") && guarded_process(pid)) {
+        ssize_t n = pread(opened, process, sizeof(process) - 1, 0);
+        if (n <= 0)
+            goto invalid;
+        process[n] = 0;
+        unsigned long long size, resident, shared, code, library, data, dirty;
+        if (sscanf(process, "%llu %llu %llu %llu %llu %llu %llu",
+                   &size, &resident, &shared, &code, &library, &data, &dirty) != 7)
+            goto invalid;
+        snprintf(process, sizeof(process), "%llu %llu 0 0 0 %llu 0\n",
+                 size, resident, data);
         text = process;
     }
     else if (fs.f_type == PROC_SUPER_MAGIC && !strcmp(path, "/proc/cpuinfo"))
