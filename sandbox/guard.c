@@ -51,6 +51,7 @@ static cpu_set_t cpu_mask;
 static size_t cpu_mask_size;
 static char *cpu_info;
 static volatile pid_t target_pid;
+static int block_log = -1;
 static unsigned long long start_ticks;
 
 static int proc_number(pid_t pid, const char *field, int base) {
@@ -716,6 +717,46 @@ static void forward_signal(int sig) {
         kill(target_pid, sig);
 }
 
+static void log_blocked(const struct seccomp_notif *req, int error) {
+    if (block_log < 0 || (error != EACCES && error != EPERM && error != ELOOP))
+        return;
+    const char *call = req->data.nr == (uint32_t)__NR_open ? "open" :
+                       req->data.nr == (uint32_t)__NR_openat ? "openat" : "openat2";
+    char path[4096];
+    uint64_t address = req->data.args[req->data.nr == (uint32_t)__NR_open ? 0 : 1];
+    if (target_path(req->pid, address, path))
+        strcpy(path, "<unreadable>");
+    for (char *p = path; *p; p++)
+        if ((unsigned char)*p < 32 || (unsigned char)*p == 127)
+            *p = '?';
+    time_t now = time(NULL);
+    struct tm tm;
+    char stamp[32];
+    gmtime_r(&now, &tm);
+    strftime(stamp, sizeof(stamp), "%Y-%m-%dT%H:%M:%SZ", &tm);
+    dprintf(block_log, "%s: Blocked:%s %s %s\n", stamp, path, call, strerror(error));
+}
+
+/* Keep the current log plus five numbered runs. */
+#define LOG_BACKUPS 5
+static void log_name(const char *path, int index, char out[PATH_MAX]) {
+    size_t len = strlen(path);
+    if (len > 4 && !strcmp(path + len - 4, ".log"))
+        snprintf(out, PATH_MAX, "%.*s.%d.log", (int)(len - 4), path, index);
+    else
+        snprintf(out, PATH_MAX, "%s.%d", path, index);
+}
+static void rotate_log(const char *path) {
+    char from[PATH_MAX], to[PATH_MAX];
+    for (int i = LOG_BACKUPS - 1; i >= 1; i--) {
+        log_name(path, i - 1, from);
+        log_name(path, i, to);
+        rename(from, to);
+    }
+    log_name(path, 0, to);
+    rename(path, to);
+}
+
 int main(int argc, char **argv) {
     const char *sandbox = getenv("OPENCODE_SANDBOX");
     if (strcmp(argv[0], "/opt/opencode-sandbox/guard") ||
@@ -737,6 +778,15 @@ int main(int argc, char **argv) {
         return 1;
     }
     start_ticks = clock_ticks();
+    const char *log_path = getenv("OPENCODE_GUARD_LOG");
+    if (log_path && *log_path) {
+        rotate_log(log_path);
+        block_log = open(log_path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC | O_NOFOLLOW, 0600);
+        if (block_log < 0) {
+            perror("guard: open block log");
+            return 1;
+        }
+    }
     struct seccomp_notif_sizes sizes;
     if (syscall(SYS_seccomp, SECCOMP_GET_NOTIF_SIZES, 0, &sizes)) {
         perror("guard: seccomp notifications required");
@@ -898,6 +948,7 @@ int main(int argc, char **argv) {
             resp->error = -emulate_open(req, listener);
             if (!resp->error)
                 continue;
+            log_blocked(req, -resp->error);
         }
         if (valid(listener, req->id) &&
             ioctl(listener, SECCOMP_IOCTL_NOTIF_SEND, resp) && errno != ENOENT)

@@ -206,6 +206,23 @@ finally:
 ''', env_extra={'REA_TEST_OWNER': 'guarded-session'})
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_block_log_records_denials_and_rotates(self):
+        log = self.base / "guard-blocked.log"
+        code = '''import os
+try:
+    open('/proc/1/environ', 'rb')
+except OSError:
+    pass
+else:
+    raise AssertionError('supervisor environment exposed')
+'''
+        for _ in range(2):
+            result = self.guarded(code, env_extra={"OPENCODE_GUARD_LOG": str(log)})
+            self.assertEqual(result.returncode, 0, result.stderr)
+        current = log.read_text()
+        rotated = (self.base / "guard-blocked.0.log").read_text()
+        self.assertIn("Blocked:/proc/1/environ", current)
+        self.assertIn("Blocked:/proc/1/environ", rotated)
 
     def test_open_arguments_on_protected_pages(self):
         result = self.guarded('''import ctypes, errno, mmap, os

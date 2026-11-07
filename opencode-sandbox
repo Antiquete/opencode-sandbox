@@ -358,6 +358,7 @@ if [[ $GUARD == 1 ]]; then
 	# guard -> /opt/opencode-sandbox/guard
 	MOUNT_OPTS+=(--mount "type=bind,$(mount_source "$GUARD_BIN"),dst=/opt/opencode-sandbox/guard,readonly")
 	CONTAINER_OPTS+=(--entrypoint /opt/opencode-sandbox/guard)
+	CONTAINER_OPTS+=(--env OPENCODE_GUARD_LOG=/root/.local/share/opencode/guard-blocked.log)
 	CONTAINER_OPTS+=(--env OPENCODE_SANDBOX=1)
 	OPENCODE_OPTS=(opencode "${OPENCODE_OPTS[@]}")
 fi
