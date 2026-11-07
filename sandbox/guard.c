@@ -12,6 +12,7 @@
 #include <limits.h>
 #include <poll.h>
 #include <signal.h>
+#include <sched.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -45,7 +46,10 @@
 
 /* ---- System-call rules and sandbox identity ---- */
 
-static unsigned long memory_bytes = 4UL * 1024 * 1024 * 1024;
+static unsigned long memory_bytes;
+static cpu_set_t cpu_mask;
+static size_t cpu_mask_size;
+static char *cpu_info;
 static volatile pid_t target_pid;
 static unsigned long long start_ticks;
 
@@ -90,6 +94,47 @@ static int guarded_process(pid_t pid) {
     return 0;
 }
 
+static int available_resources(void) {
+    struct sysinfo info;
+    cpu_set_t available;
+    if (sysinfo(&info) || sched_getaffinity(0, sizeof(available), &available))
+        return -1;
+    memory_bytes = info.totalram * info.mem_unit;
+    int count = CPU_COUNT(&available);
+    if (!count)
+        return -1;
+    const char *limit = getenv("OPENCODE_GUARD_CPUS");
+    if (limit) {
+        char *end;
+        errno = 0;
+        long double value = strtold(limit, &end);
+        if (*limit < '0' || *limit > '9' || *end || errno || value < 0)
+            return -1;
+        if (value > 0 && value < count) {
+            count = (int)value;
+            if (value > count)
+                count++;
+        }
+    }
+    CPU_ZERO(&cpu_mask);
+    cpu_mask_size = ((count + sizeof(unsigned long) * 8 - 1) /
+                     (sizeof(unsigned long) * 8)) * sizeof(unsigned long);
+    size_t length = (size_t)count * 128 + 1, used = 0;
+    cpu_info = malloc(length);
+    if (!cpu_info)
+        return -1;
+    for (int i = 0; i < count; i++) {
+        CPU_SET(i, &cpu_mask);
+        used += snprintf(cpu_info + used, length - used,
+                         "processor\t: %d\nmodel name\t: Sandbox CPU\n"
+#ifdef __x86_64__
+                         "flags\t\t: sse sse2 pni\n"
+#endif
+                         "\n", i);
+    }
+    return 0;
+}
+
 /* Parse runtime memory units without accepting overflow. */
 static int parse_memory_limit(void) {
     const char *text = getenv("OPENCODE_GUARD_MEMORY");
@@ -121,7 +166,8 @@ static int parse_memory_limit(void) {
     }
     if (value > ULONG_MAX)
         return -1;
-    memory_bytes = (unsigned long)value;
+    if (value && value < memory_bytes)
+        memory_bytes = (unsigned long)value;
     return 0;
 }
 
@@ -396,11 +442,7 @@ static int synthetic_file(int opened, uint64_t flags) {
         text = process;
     }
     else if (fs.f_type == PROC_SUPER_MAGIC && !strcmp(path, "/proc/cpuinfo"))
-        text = "processor\t: 0\nmodel name\t: Sandbox CPU\n"
-#ifdef __x86_64__
-               "flags\t\t: sse sse2 pni\n"
-#endif
-               "\n";
+        text = cpu_info;
     else if (same_file(opened, "/etc/hostname"))
         text = "opencode\n";
     else if (same_file(opened, "/etc/hosts"))
@@ -686,6 +728,10 @@ int main(int argc, char **argv) {
         fprintf(stderr, "guard: missing command placeholder\n");
         return 1;
     }
+    if (available_resources()) {
+        fprintf(stderr, "guard: cannot determine available resources\n");
+        return 1;
+    }
     if (parse_memory_limit()) {
         fprintf(stderr, "guard: invalid OPENCODE_GUARD_MEMORY\n");
         return 1;
@@ -821,11 +867,10 @@ int main(int argc, char **argv) {
             resp->error = -target_memory(req->pid, req->data.args[0], &info, sizeof(info), 1);
         } else if (req->data.nr == (uint32_t)__NR_sched_getaffinity) {
             /* The ABI returns the kernel mask size, not the supplied size. */
-            unsigned long mask = 1;
-            resp->error = req->data.args[1] < sizeof(mask) ? -EINVAL :
-                -target_memory(req->pid, req->data.args[2], &mask, sizeof(mask), 1);
+            resp->error = req->data.args[1] < cpu_mask_size ? -EINVAL :
+                -target_memory(req->pid, req->data.args[2], &cpu_mask, cpu_mask_size, 1);
             if (!resp->error)
-                resp->val = sizeof(mask);
+                resp->val = cpu_mask_size;
         } else if (req->data.nr == (uint32_t)__NR_getcpu) {
             unsigned zero = 0;
             for (int i = 0; i < 2 && !resp->error; i++)

@@ -83,8 +83,8 @@ OPENCODE_OPTS=()
 
 CONFIG_MODE="readonly"
 SHARED_LOGIN=1
-MEM_LIMIT=4g
-CPUS_LIMIT=2
+MEM_LIMIT=
+CPUS_LIMIT=
 PIDS_LIMIT=1024
 DNS_OPTS=(--dns 1.1.1.1)
 NETWORK=default
@@ -375,6 +375,13 @@ fi
 CONTAINER_OPTS+=("${USER_OPTS[@]}")
 CONTAINER_OPTS+=("${SEC_OPTS[@]}")
 CONTAINER_OPTS+=("${MOUNT_OPTS[@]}")
+RESOURCE_OPTS=()
+if [[ -n $MEM_LIMIT ]]; then
+	RESOURCE_OPTS+=(--memory-swap "$MEM_LIMIT" --env "OPENCODE_GUARD_MEMORY=$MEM_LIMIT")
+fi
+if [[ -n $CPUS_LIMIT ]]; then
+	RESOURCE_OPTS+=(--env "OPENCODE_GUARD_CPUS=$CPUS_LIMIT")
+fi
 # --------------------------------------------------------------------------
 
 # --------------------------------------------------------------------------
@@ -413,7 +420,7 @@ status "${GRN}Project${RST}" "$PROJECT (read/write)"
 status "${YEL}State${RST}" "$STATE_DIR (read/write)"
 status Config "$CONFIG_DIR"
 echo
-status "${DIM}Limits (requested)" "${MEM_LIMIT} RAM | ${CPUS_LIMIT} CPUs | ${PIDS_LIMIT} processes${RST}"
+status "${DIM}Limits (requested)" "${MEM_LIMIT:-unlimited} RAM | ${CPUS_LIMIT:-unlimited} CPUs | ${PIDS_LIMIT} processes${RST}"
 echo
 printf "Continue? [y/N]: "
 if ! read -r CONFIRM; then
@@ -437,14 +444,11 @@ esac
 	--pull "$PULL" \
 	--hostname opencode \
 	"${DNS_OPTS[@]}" \
-	--cpus "$CPUS_LIMIT" \
-	--memory "$MEM_LIMIT" \
-	--memory-swap "$MEM_LIMIT" \
+	"${RESOURCE_OPTS[@]}" \
 	--pids-limit "$PIDS_LIMIT" \
 	--ulimit core=0 \
 	--ipc private \
 	--cgroupns private \
-	--env "OPENCODE_GUARD_MEMORY=$MEM_LIMIT" \
 	"${CONTAINER_OPTS[@]}" \
 	--workdir /workspace \
 	"$IMAGE" \

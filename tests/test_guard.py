@@ -35,6 +35,7 @@ class GuardTests(unittest.TestCase):
         opencode.chmod(0o755)
         env = os.environ.copy()
         env.pop("OPENCODE_GUARD_MEMORY", None)
+        env.pop("OPENCODE_GUARD_CPUS", None)
         env["OPENCODE_SANDBOX"] = "1"
         if env_extra:
             env.update(env_extra)
@@ -301,7 +302,7 @@ subprocess.run([sys.executable, '-B', 'child.py'], check=True)
         self.assertEqual((self.base / "child-state").read_text(), "child ok")
 
     def test_uname_and_sysinfo_are_synthetic(self):
-        result = self.guarded('''import ctypes, os
+        result = self.guarded('''import ctypes, os, sys
 u = os.uname()
 assert u.nodename == 'opencode', u
 assert u.release == '6.1.0-sandbox', u
@@ -315,9 +316,9 @@ class Info(ctypes.Structure):
                 ('mem_unit', ctypes.c_uint)]
 info = Info()
 assert ctypes.CDLL(None).sysinfo(ctypes.byref(info)) == 0
-assert info.totalram * info.mem_unit == 4 * 1024**3
+assert info.totalram * info.mem_unit == int(sys.argv[1])
 assert info.uptime < 120
-''')
+''', os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE"))
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_sysinfo_uses_configured_guard_memory(self):
@@ -334,12 +335,15 @@ info = Info()
 assert ctypes.CDLL(None).sysinfo(ctypes.byref(info)) == 0
 assert info.totalram * info.mem_unit == int(sys.argv[1])
 '''
+        capacity = os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
         for memory, expected in (
             ("512m", 512 * 1024**2), ("1.5GB", 3 * 1024**3 // 2),
-            ("4294967296", 4 * 1024**3), ("1t", 1024**4), ("0", 0),
+            ("4294967296", 4 * 1024**3), ("1t", 1024**4),
+            ("0", os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")),
         ):
             with self.subTest(memory=memory):
-                result = self.guarded(code, expected, env_extra={"OPENCODE_GUARD_MEMORY": memory})
+                result = self.guarded(code, min(expected, capacity),
+                                      env_extra={"OPENCODE_GUARD_MEMORY": memory})
                 self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_invalid_guard_memory_fails_startup(self):
@@ -584,10 +588,22 @@ for operation, error in [(lambda: os.statvfs('missing-volume'), 2),
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_affinity_is_synthetic(self):
-        result = self.guarded('''import os
-assert os.sched_getaffinity(0) == {0}
-''')
+        result = self.guarded('''import os, sys
+assert os.sched_getaffinity(0) == set(range(int(sys.argv[1])))
+''', len(os.sched_getaffinity(0)))
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_affinity_respects_optional_cpu_limit(self):
+        available = len(os.sched_getaffinity(0))
+        for limit, expected in (("0.5", 1), ("1.5", 2), ("0", available),
+                                ("100000", available)):
+            with self.subTest(limit=limit):
+                result = self.guarded('''import os, sys
+expected = int(sys.argv[1])
+assert os.sched_getaffinity(0) == set(range(expected))
+assert open('/proc/cpuinfo').read().count('processor') == expected
+''', min(expected, available), env_extra={"OPENCODE_GUARD_CPUS": limit})
+                self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_cpuinfo_is_synthetic_through_aliases(self):
         (self.base / 'cpu-alias').symlink_to('/proc/cpuinfo')
@@ -596,7 +612,7 @@ expected = None
 for path in ('/proc/cpuinfo', '/proc//./cpuinfo', 'cpu-alias'):
     content = open(path).read()
     assert 'Sandbox CPU' in content, content
-    assert content.count('processor') == 1, content
+    assert content.count('processor') == len(os.sched_getaffinity(0)), content
     if expected is not None:
         assert content == expected
     expected = content

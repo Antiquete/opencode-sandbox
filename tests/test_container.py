@@ -52,12 +52,14 @@ class LimitTests(LauncherTestCase):
         for runtime in ("docker", "podman"):
             with self.subTest(runtime=runtime):
                 result, args = self.launch(runtime)
-                for option, expected in (("--memory", "4g"), ("--memory-swap", "4g"),
-                                         ("--cpus", "2"), ("--pids-limit", "1024"),
+                for option in ("--memory", "--memory-swap", "--cpus"):
+                    self.assertEqual(self.values(args, option), [])
+                for option, expected in (("--pids-limit", "1024"),
                                          ("--dns", "1.1.1.1")):
                     self.assertEqual(self.values(args, option), [expected])
-                self.assertIn("OPENCODE_GUARD_MEMORY=4g", self.values(args, "--env"))
-                self.assertIn("4g RAM | 2 CPUs | 1024 processes", result.stdout)
+                self.assertFalse(any(value.startswith("OPENCODE_GUARD_MEMORY=")
+                                     for value in self.values(args, "--env")))
+                self.assertIn("unlimited RAM | unlimited CPUs | 1024 processes", result.stdout)
 
     def test_repeated_overrides_and_memory_swap_coupling(self):
         for runtime in ("docker", "podman"):
@@ -73,6 +75,7 @@ class LimitTests(LauncherTestCase):
                 self.assertEqual(self.values(args, "--dns"), ["8.8.8.8", "9.9.9.9"])
                 self.assertEqual(self.values(args, "--label"), ["a", "b"])
                 self.assertIn("OPENCODE_GUARD_MEMORY=1.5GB", self.values(args, "--env"))
+                self.assertIn("OPENCODE_GUARD_CPUS=0.5", self.values(args, "--env"))
                 self.assertIn("1.5GB RAM | 0.5 CPUs | 256 processes", result.stdout)
 
     def test_explicit_swap_and_guard_environment_override_follow_defaults(self):
