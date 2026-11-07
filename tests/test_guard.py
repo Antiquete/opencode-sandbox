@@ -182,6 +182,50 @@ assert after.user == after.system == after.children_user == after.children_syste
 ''')
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_guarded_process_environments_are_readable(self):
+        result = self.guarded('''import os, subprocess, sys
+marker = b'REA_TEST_OWNER=guarded-session'
+assert marker in open('/proc/self/environ', 'rb').read().split(b'\\x00')
+child = subprocess.Popen([sys.executable, '-c',
+                          'import time; print("ready", flush=True); time.sleep(30)'],
+                         stdout=subprocess.PIPE)
+try:
+    assert child.stdout.readline() == b'ready\\n'
+    assert marker in open('/proc/%d/environ' % child.pid, 'rb').read().split(b'\\x00')
+    try:
+        open('/proc/%d/environ' % os.getppid(), 'rb')
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('supervisor environment exposed')
+finally:
+    child.terminate()
+    child.wait()
+    child.stdout.close()
+''', env_extra={'REA_TEST_OWNER': 'guarded-session'})
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+
+    def test_open_arguments_on_protected_pages(self):
+        result = self.guarded('''import ctypes, errno, mmap, os
+libc = ctypes.CDLL(None, use_errno=True)
+libc.mprotect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
+libc.open.argtypes = [ctypes.c_void_p, ctypes.c_int]
+page = mmap.mmap(-1, mmap.PAGESIZE)
+address = ctypes.addressof(ctypes.c_char.from_buffer(page))
+page[:10] = b'/dev/null\\0'
+assert libc.mprotect(address, mmap.PAGESIZE, 0) == 0
+try:
+    fd = libc.open(address, os.O_RDONLY)
+    assert fd >= 0, ctypes.get_errno()
+    os.close(fd)
+    assert libc.open(1, os.O_RDONLY) == -1
+    assert ctypes.get_errno() == errno.EFAULT
+finally:
+    assert libc.mprotect(address, mmap.PAGESIZE, mmap.PROT_READ | mmap.PROT_WRITE) == 0
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_sysfs_readlink_and_fd_aliases_denied(self):
         (self.base / 'sys-alias').symlink_to('/sys/class/net')
         (self.base / 'plain-link').symlink_to('plain-target')

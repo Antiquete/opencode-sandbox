@@ -226,10 +226,34 @@ static int valid(int listener, uint64_t id) {
 
 /* Copy data to or from the command; return an errno on failure. */
 static int target_memory(pid_t pid, uint64_t addr, void *buf, size_t len, int to_target) {
-    struct iovec local = {buf, len}, remote = {(void *)(uintptr_t)addr, len};
-    ssize_t n = syscall(to_target ? SYS_process_vm_writev : SYS_process_vm_readv,
-                        pid, &local, 1, &remote, 1, 0);
-    return n == (ssize_t)len ? 0 : EFAULT;
+    size_t done = 0;
+    while (done < len) {
+        struct iovec local = {(char *)buf + done, len - done};
+        struct iovec remote = {(void *)(uintptr_t)(addr + done), len - done};
+        ssize_t n = syscall(to_target ? SYS_process_vm_writev : SYS_process_vm_readv,
+                            pid, &local, 1, &remote, 1, 0);
+        if (n < 0 && errno == EINTR)
+            continue;
+        /* Read arguments even while their pages are protected. */
+        if (n < 0 && errno == EFAULT && !to_target) {
+            char name[80];
+            snprintf(name, sizeof(name), "/proc/%d/mem", pid);
+            int fd = open(name, O_RDONLY | O_CLOEXEC);
+            if (fd < 0)
+                return errno;
+            do {
+                n = pread(fd, (char *)buf + done, len - done, (off_t)(addr + done));
+            } while (n < 0 && errno == EINTR);
+            int error = errno;
+            close(fd);
+            if (n < 0)
+                return error == EIO ? EFAULT : error;
+        }
+        if (n <= 0)
+            return n < 0 ? errno : EFAULT;
+        done += (size_t)n;
+    }
+    return 0;
 }
 
 /* Safely copy a file name from the command. */
@@ -239,8 +263,9 @@ static int target_path(pid_t pid, uint64_t addr, char out[4096]) {
         size_t n = 256 - ((addr + pos) & 255);
         if (n > 4096 - pos)
             n = 4096 - pos;
-        if (target_memory(pid, addr + pos, out + pos, n, 0))
-            return EFAULT;
+        int error = target_memory(pid, addr + pos, out + pos, n, 0);
+        if (error)
+            return error;
         if (memchr(out + pos, 0, n))
             return 0;
         pos += n;
@@ -288,7 +313,8 @@ static int check_open(int fd, pid_t tid) {
                 (sscanf(path, "/proc/%d%n", &pid, &offset) == 1 &&
                  !path[offset] && guarded_process(pid));
         return sscanf(path, "/proc/%d/%n", &pid, &offset) == 1 && offset &&
-               !strcmp(path + offset, "cmdline") && guarded_process(pid);
+               (!strcmp(path + offset, "cmdline") ||
+                !strcmp(path + offset, "environ")) && guarded_process(pid);
     }
     return fs.f_type != SYSFS_MAGIC &&
            fs.f_type != CGROUP_SUPER_MAGIC && fs.f_type != CGROUP2_SUPER_MAGIC;
@@ -540,8 +566,9 @@ static int emulate_open(const struct seccomp_notif *req, int listener) {
     if (req->data.nr == (uint32_t)__NR_openat2) {
         if (req->data.args[3] != sizeof(how))
             return EINVAL;
-        if (target_memory(req->pid, req->data.args[2], &how, sizeof(how), 0))
-            return EFAULT;
+        int error = target_memory(req->pid, req->data.args[2], &how, sizeof(how), 0);
+        if (error)
+            return error;
     } else {
         how.mode &= 07777;
         if (!(how.flags & O_CREAT) && (how.flags & O_TMPFILE) != O_TMPFILE)
