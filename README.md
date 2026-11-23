@@ -168,7 +168,7 @@ the host's, while allowing basic file information checks.
 | `/proc/sys/kernel/random/boot_id`<br>Host boot identifier | Denied (guard) | Denied (guard) | Synthetic (runsc) |
 | `/proc/uptime`<br>System uptime | Denied (guard) | Denied (guard) | Synthetic (runsc) |
 | `/proc/cpuinfo`<br>CPU model and features | Synthetic (guard) | Synthetic (guard) | Partial (runsc)\* |
-| `/proc/meminfo`<br>Host memory and swap | Denied (guard) | Blocked (mask) | Partial (runsc)\* |
+| `/proc/meminfo`<br>Memory budget and swap | Synthetic (guard) | Blocked (mask) | Partial (runsc)\* |
 | `/proc/self/stat`, process records<br>Start time, CPU number, kernel fields | Synthetic (guard) | Synthetic (guard) | Synthetic (runsc) |
 | `/etc/hostname`, `/etc/hosts`, `/etc/resolv.conf`, machine ID<br>Host identity | Synthetic (guard) | Synthetic (guard) | Partial (runsc) |
 | Sysfs and cgroup symlink targets<br>Device and cgroup paths | Denied (guard) | Denied (guard) | Blocked (tmpfs) |

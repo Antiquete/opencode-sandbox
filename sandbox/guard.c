@@ -474,6 +474,64 @@ static int synthetic_file(int opened, uint64_t flags) {
     }
     else if (fs.f_type == PROC_SUPER_MAGIC && !strcmp(path, "/proc/cpuinfo"))
         text = cpu_info;
+    else if (fs.f_type == PROC_SUPER_MAGIC && !strcmp(path, "/proc/meminfo")) {
+        /* Report the guard's memory budget, not current host usage. */
+        unsigned long kb = memory_bytes / 1024;
+        snprintf(process, sizeof(process),
+                 "MemTotal:       %lu kB\n"
+                 "MemFree:        %lu kB\n"
+                 "MemAvailable:   %lu kB\n"
+                 "Buffers:             0 kB\n"
+                 "Cached:              0 kB\n"
+                 "SwapCached:          0 kB\n"
+                 "Active:              0 kB\n"
+                 "Inactive:            0 kB\n"
+                 "Active(anon):        0 kB\n"
+                 "Inactive(anon):      0 kB\n"
+                 "Active(file):        0 kB\n"
+                 "Inactive(file):      0 kB\n"
+                 "Unevictable:         0 kB\n"
+                 "Mlocked:             0 kB\n"
+                 "SwapTotal:           0 kB\n"
+                 "SwapFree:            0 kB\n"
+                 "Dirty:               0 kB\n"
+                 "Writeback:           0 kB\n"
+                 "AnonPages:           0 kB\n"
+                 "Mapped:              0 kB\n"
+                 "Shmem:               0 kB\n"
+                 "KReclaimable:        0 kB\n"
+                 "Slab:                0 kB\n"
+                 "SReclaimable:        0 kB\n"
+                 "SUnreclaim:          0 kB\n"
+                 "KernelStack:         0 kB\n"
+                 "PageTables:          0 kB\n"
+                 "NFS_Unstable:        0 kB\n"
+                 "Bounce:              0 kB\n"
+                 "WritebackTmp:        0 kB\n"
+                 "CommitLimit:    %lu kB\n"
+                 "Committed_AS:        0 kB\n"
+                 "VmallocTotal:        0 kB\n"
+                 "VmallocUsed:         0 kB\n"
+                 "VmallocChunk:        0 kB\n"
+                 "Percpu:              0 kB\n"
+                 "HardwareCorrupted:   0 kB\n"
+                 "AnonHugePages:       0 kB\n"
+                 "ShmemHugePages:      0 kB\n"
+                 "ShmemPmdMapped:      0 kB\n"
+                 "FileHugePages:       0 kB\n"
+                 "FilePmdMapped:       0 kB\n"
+                 "HugePages_Total:     0\n"
+                 "HugePages_Free:      0\n"
+                 "HugePages_Rsvd:      0\n"
+                 "HugePages_Surp:      0\n"
+                 "Hugepagesize:     2048 kB\n"
+                 "Hugetlb:             0 kB\n"
+                 "DirectMap4k:         0 kB\n"
+                 "DirectMap2M:         0 kB\n"
+                 "DirectMap1G:         0 kB\n",
+                 kb, kb, kb, kb);
+        text = process;
+    }
     else if (same_file(opened, "/etc/hostname"))
         text = "opencode\n";
     else if (same_file(opened, "/etc/hosts"))

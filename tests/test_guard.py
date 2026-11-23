@@ -125,7 +125,7 @@ while True:
         (self.base / "exe-alias").symlink_to("/proc/self/exe")
         (self.base / "net-alias").symlink_to("/sys/class/net")
         paths = ["/proc/cmdline", "/proc//cmdline", "/proc/./cmdline",
-                 "/proc/meminfo", "/proc/partitions",
+                 "/proc/partitions",
                  "/proc/diskstats", "/proc/modules", "/proc/version",
                  "/proc/uptime", "/proc/stat", "/proc/loadavg",
                  "/proc/sys/kernel/random/boot_id", "/proc/self/mountinfo",
@@ -438,6 +438,21 @@ assert info.totalram * info.mem_unit == int(sys.argv[1])
                 result = self.guarded(code, min(expected, capacity),
                                       env_extra={"OPENCODE_GUARD_MEMORY": memory})
                 self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_meminfo_is_synthetic(self):
+        result = self.guarded('''import sys
+values = {}
+for line in open('/proc/meminfo'):
+    key, value = line.split(':', 1)
+    values[key] = value.split()[0]
+expected = str(int(sys.argv[1]) // 1024)
+assert values['MemTotal'] == expected, values
+assert values['MemFree'] == expected, values
+assert values['MemAvailable'] == expected, values
+assert values['SwapTotal'] == '0', values
+assert values['SwapFree'] == '0', values
+''', 512 * 1024**2, env_extra={"OPENCODE_GUARD_MEMORY": "512m"})
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_invalid_guard_memory_fails_startup(self):
         for memory in ("", "1qq", "-1", "1e9999", "18446744073709551616", "99999p"):
