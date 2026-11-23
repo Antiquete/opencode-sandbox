@@ -79,6 +79,7 @@ opencode-sandbox --opencode-model=some-model
 
 | Option | Effect |
 | --- | --- |
+| `-v2` | Use the newest published v2 image<br>Default: `latest` tag (v1)<br>↳ Falls back to `latest` if the registry cannot be reached |
 | `--edit-config` | Allow writes to shared host config<br>Default: Read-only |
 | `--local-login` | Keep logins per project instead of sharing them<br>Default: Shared |
 | `--no-pull` | Use the cached image<br>Default: Pull always |

@@ -65,13 +65,52 @@ mount_source() {
 	printf '"src=%s"' "${1//\"/\"\"}"
 }
 
+# Fetch a URL with curl or wget.
+fetch() {
+	local URL=$1 HEADER=${2-}
+	if command -v curl >/dev/null 2>&1; then
+		if [ -n "$HEADER" ]; then
+			curl -fsSL --max-time 5 -H "$HEADER" "$URL"
+		else
+			curl -fsSL --max-time 5 "$URL"
+		fi
+	elif command -v wget >/dev/null 2>&1; then
+		if [ -n "$HEADER" ]; then
+			wget -qO- --timeout=5 --header="$HEADER" "$URL"
+		else
+			wget -qO- --timeout=5 "$URL"
+		fi
+	else
+		return 1
+	fi
+}
+
+# Find the newest v2 image that has actually been published.
+latest_v2_image() {
+	local TOKEN TAGS VERSION
+	TOKEN=$(fetch 'https://ghcr.io/token?scope=repository:anomalyco/opencode:pull' 2>/dev/null) || return 1
+	TOKEN=$(printf '%s' "$TOKEN" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+	[[ -n $TOKEN ]] || return 1
+	TAGS=$(fetch 'https://ghcr.io/v2/anomalyco/opencode/tags/list?last=2.0.0&n=1000' \
+		"Authorization: Bearer $TOKEN" 2>/dev/null) || return 1
+	VERSION=$(printf '%s' "$TAGS" |
+		grep -oE '"2\.[0-9]+\.[0-9]+"' |
+		tr -d '"' |
+		sort -t. -k1,1n -k2,2n -k3,3n |
+		tail -n 1)
+	[[ -n $VERSION ]] || return 1
+	printf 'ghcr.io/anomalyco/opencode:%s\n' "$VERSION"
+}
+
 # --------------------------------------------------------------------------
 
 # --------------------------------------------------------------------------
 # ------------------------------ CLI Options -------------------------------
 # --------------------------------------------------------------------------
 # Defaults
+# v2 is published only under version tags; latest still points at v1.
 IMAGE="ghcr.io/anomalyco/opencode:latest"
+V2=0
 PULL=always
 
 CONTAINERIZER=auto
@@ -94,6 +133,10 @@ while [ "$#" -gt 0 ]; do
 	# Sandbox options
 	--no-pull)
 		PULL=never
+		shift
+		;;
+	-v2 | --v2)
+		V2=1
 		shift
 		;;
 	--edit-config)
@@ -154,6 +197,19 @@ while [ "$#" -gt 0 ]; do
 		;;
 	esac
 done
+# --------------------------------------------------------------------------
+
+# --------------------------------------------------------------------------
+# ------------------------ OpenCode Image Selection ------------------------
+# --------------------------------------------------------------------------
+# Opt into v2 by resolving its newest published version tag.
+if [[ $V2 == 1 ]]; then
+	if RESOLVED_IMAGE=$(latest_v2_image); then
+		IMAGE=$RESOLVED_IMAGE
+	else
+		echo "Warning: cannot find the newest v2 image; using $IMAGE." >&2
+	fi
+fi
 # --------------------------------------------------------------------------
 
 # --------------------------------------------------------------------------

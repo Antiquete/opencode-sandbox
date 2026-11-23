@@ -135,6 +135,32 @@ class RoutingTests(LauncherTestCase):
         self.assertEqual(args[args.index("--pull") + 1], "never")
         self.assertEqual(args[args.index("--network") + 1], "none")
 
+    def test_newest_v2_image_is_resolved(self):
+        curl = self.base / "bin/curl"
+        curl.write_text('''#!/bin/sh
+case "$*" in
+*tags/list*) printf '%s\\n' '{"tags":["2.9.9","2.10.0","2.3.2","latest"]}' ;;
+*token*) printf '%s\\n' '{"token":"test-token"}' ;;
+*) exit 1 ;;
+esac
+''')
+        curl.chmod(0o755)
+        result, runs = self.launch("--runtime=docker", "--no-guard", "-v2")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args = runs[0]
+        image = args.index("ghcr.io/anomalyco/opencode:2.10.0")
+        self.assertEqual(args[image + 1:], [])
+
+    def test_v2_resolution_falls_back_to_latest(self):
+        curl = self.base / "bin/curl"
+        curl.write_text("#!/bin/sh\nexit 1\n")
+        curl.chmod(0o755)
+        result, runs = self.launch("--runtime=docker", "--no-guard", "-v2")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        image = runs[0].index("ghcr.io/anomalyco/opencode:latest")
+        self.assertEqual(runs[0][image + 1:], [])
+        self.assertIn("cannot find the newest v2 image", result.stderr)
+
     def test_auto_selection_and_exact_runsc_registration(self):
         cases = [
             ({}, "docker", "ON"),
