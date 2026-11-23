@@ -53,6 +53,7 @@ static char *cpu_info;
 static volatile pid_t target_pid;
 static int block_log = -1;
 static unsigned long long start_ticks;
+static time_t start_seconds;
 
 static int proc_number(pid_t pid, const char *field, int base) {
     char name[80], line[256];
@@ -414,6 +415,7 @@ static int synthetic_file(int opened, uint64_t flags) {
     }
     const char *text = NULL;
     char process[8192];
+    char *dynamic = NULL;
     int pid = 0, offset = 0;
     if (fs.f_type == PROC_SUPER_MAGIC &&
         sscanf(path, "/proc/%d/%n", &pid, &offset) == 1 && offset &&
@@ -532,6 +534,35 @@ static int synthetic_file(int opened, uint64_t flags) {
                  kb, kb, kb, kb);
         text = process;
     }
+    else if (fs.f_type == PROC_SUPER_MAGIC && !strcmp(path, "/proc/stat")) {
+        /* Boot time is the guard's start, matching sysinfo uptime and the
+         * synthetic process start times. CPU time is reported as idle. */
+        int cpus = CPU_COUNT(&cpu_mask);
+        unsigned long long elapsed = clock_ticks() - start_ticks;
+        size_t length = (size_t)(cpus + 1) * 128 + 64;
+        dynamic = malloc(length);
+        if (!dynamic)
+            goto invalid;
+        size_t used = 0;
+        for (int cpu = -1; cpu < cpus; cpu++) {
+            char name[32];
+            if (cpu < 0)
+                snprintf(name, sizeof(name), "cpu");
+            else
+                snprintf(name, sizeof(name), "cpu%d", cpu);
+            unsigned long long idle = cpu < 0 ? elapsed * cpus : elapsed;
+            int count = snprintf(dynamic + used, length - used,
+                                 "%s 0 0 0 %llu 0 0 0 0 0 0\n", name, idle);
+            if (count < 0 || (size_t)count >= length - used)
+                goto invalid;
+            used += count;
+        }
+        int count = snprintf(dynamic + used, length - used,
+                             "btime %lld\n", (long long)start_seconds);
+        if (count < 0 || (size_t)count >= length - used)
+            goto invalid;
+        text = dynamic;
+    }
     else if (same_file(opened, "/etc/hostname"))
         text = "opencode\n";
     else if (same_file(opened, "/etc/hosts"))
@@ -544,11 +575,15 @@ static int synthetic_file(int opened, uint64_t flags) {
         return opened;
     close(opened);
     if ((flags & O_ACCMODE) != O_RDONLY || (flags & (O_TRUNC | O_CREAT))) {
+        free(dynamic);
         errno = EACCES;
         return -1;
     }
-    return content_fd(text);
+    int result = content_fd(text);
+    free(dynamic);
+    return result;
 invalid:
+    free(dynamic);
     close(opened);
     errno = EACCES;
     return -1;
@@ -866,6 +901,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     start_ticks = clock_ticks();
+    start_seconds = time(NULL);
     const char *log_path = getenv("OPENCODE_GUARD_LOG");
     if (log_path && *log_path) {
         rotate_log(log_path);

@@ -167,6 +167,7 @@ the host's, while allowing basic file information checks.
 | `/proc/version`<br>Kernel build information | Denied (guard) | Denied (guard) | Synthetic (runsc) |
 | `/proc/sys/kernel/random/boot_id`<br>Host boot identifier | Denied (guard) | Denied (guard) | Synthetic (runsc) |
 | `/proc/uptime`<br>System uptime | Denied (guard) | Denied (guard) | Synthetic (runsc) |
+| `/proc/stat`<br>Boot time and CPU counters | Synthetic (guard) | Synthetic (guard) | Synthetic (runsc) |
 | `/proc/cpuinfo`<br>CPU model and features | Synthetic (guard) | Synthetic (guard) | Partial (runsc)\* |
 | `/proc/meminfo`<br>Memory budget and swap | Synthetic (guard) | Blocked (mask) | Partial (runsc)\* |
 | `/proc/self/stat`, process records<br>Start time, CPU number, kernel fields | Synthetic (guard) | Synthetic (guard) | Synthetic (runsc) |

@@ -127,7 +127,7 @@ while True:
         paths = ["/proc/cmdline", "/proc//cmdline", "/proc/./cmdline",
                  "/proc/partitions",
                  "/proc/diskstats", "/proc/modules", "/proc/version",
-                 "/proc/uptime", "/proc/stat", "/proc/loadavg",
+                 "/proc/uptime", "/proc/loadavg",
                  "/proc/sys/kernel/random/boot_id", "/proc/self/mountinfo",
                  "/proc/self/mounts", "/proc/1/mountinfo",
                  "/proc/1/status", "/proc/1/maps", "/proc/1/environ",
@@ -452,6 +452,30 @@ assert values['MemAvailable'] == expected, values
 assert values['SwapTotal'] == '0', values
 assert values['SwapFree'] == '0', values
 ''', 512 * 1024**2, env_extra={"OPENCODE_GUARD_MEMORY": "512m"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_stat_is_synthetic(self):
+        (self.base / 'stat-file-alias').symlink_to('/proc/stat')
+        result = self.guarded('''import os, time
+cpus = len(os.sched_getaffinity(0))
+for path in ('/proc/stat', 'stat-file-alias'):
+    rows = {}
+    btime = None
+    for line in open(path):
+        fields = line.split()
+        if fields[0] == 'btime':
+            btime = int(fields[1])
+        elif fields[0].startswith('cpu'):
+            rows[fields[0]] = [int(value) for value in fields[1:]]
+    assert btime is not None, path
+    assert 0 <= time.time() - btime < 60, (path, btime)
+    assert len(rows) == cpus + 1, (path, len(rows), cpus)
+    for name, values in rows.items():
+        assert len(values) == 10, (path, name, values)
+        assert values[:3] == [0, 0, 0], (path, name, values)
+        assert values[3] >= 0, (path, name, values)
+        assert values[4:] == [0, 0, 0, 0, 0, 0], (path, name, values)
+''')
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_invalid_guard_memory_fails_startup(self):
