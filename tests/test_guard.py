@@ -368,6 +368,32 @@ subprocess.run([sys.executable, '-B', 'child.py'], check=True)
         self.assertEqual((self.base / "state").read_text(), "persistent")
         self.assertEqual((self.base / "child-state").read_text(), "child ok")
 
+    def test_orphaned_descendants_are_adopted(self):
+        result = self.guarded('''import os
+result_r, result_w = os.pipe()
+go_r, go_w = os.pipe()
+pid = os.fork()
+if pid == 0:
+    os.close(result_r)
+    os.close(go_w)
+    if os.fork() == 0:
+        os.read(go_r, 1)
+        try:
+            ok = bool(open('/proc/self/environ', 'rb').read(1))
+        except OSError:
+            ok = False
+        os.write(result_w, b'1' if ok else b'0')
+        os._exit(0)
+    os._exit(0)
+os.close(result_w)
+os.close(go_r)
+os.waitpid(pid, 0)
+os.write(go_w, b'x')
+os.close(go_w)
+raise SystemExit(0 if os.read(result_r, 1) == b'1' else 1)
+''')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_uname_and_sysinfo_are_synthetic(self):
         result = self.guarded('''import ctypes, os, sys
 u = os.uname()
@@ -626,6 +652,50 @@ assert libc.prctl(22, 2, 0, 0, 0) == -1
 assert ctypes.get_errno() == errno.EPERM
 ''')
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_i386_tls_setup_is_allowed(self):
+        if os.uname().machine != "x86_64":
+            self.skipTest("i386 ABI is x86-64 only")
+        source = self.base / "i386-tls.c"
+        source.write_text('''\
+static unsigned desc[4] = {0xffffffffu, 0, 0xfffffu, 0x51u};
+static int call(int nr, unsigned a, unsigned b, unsigned c) {
+    int ret;
+    __asm__ volatile("int $0x80" : "=a"(ret)
+                     : "a"(nr), "b"(a), "c"(b), "d"(c) : "memory");
+    return ret;
+}
+__attribute__((noreturn)) void _start(void) {
+    int tls = call(243, (unsigned)(unsigned long)desc, 0, 0);
+    int pid = call(20, 0, 0, 0);
+    if (tls == 0 && pid == -38)
+        __asm__ volatile("int3");
+    __asm__ volatile("ud2");
+    __builtin_unreachable();
+}
+''')
+        binary_dir = self.base / "bin"
+        binary_dir.mkdir()
+        binary = binary_dir / "opencode"
+        build = subprocess.run(
+            ["cc", "-m32", "-nostdlib", "-static", "-fno-pic", "-no-pie",
+             "-fno-stack-protector", "-o", str(binary), str(source)],
+            text=True, capture_output=True,
+        )
+        if build.returncode:
+            self.skipTest("cannot build i386 test binary: " + build.stderr)
+        env = os.environ.copy()
+        env.pop("OPENCODE_GUARD_MEMORY", None)
+        env.pop("OPENCODE_GUARD_CPUS", None)
+        env["OPENCODE_SANDBOX"] = "1"
+        env["PATH"] = f"{binary_dir}:{env['PATH']}"
+        result = subprocess.run(
+            ["/opt/opencode-sandbox/guard", "opencode"],
+            executable=str(GUARD), cwd=self.base, env=env,
+            text=True, capture_output=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 128 + signal.SIGTRAP,
+                         result.stdout + result.stderr)
 
     def test_exit_status_propagates(self):
         for code in (0, 7):

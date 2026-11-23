@@ -84,12 +84,16 @@ static unsigned long long clock_ticks(void) {
 
 /* Only the guarded command's process tree may expose process records. */
 static int guarded_process(pid_t pid) {
+    pid_t supervisor = getpid();
     for (int depth = 0; pid > 0 && depth < 1024; depth++) {
         if (pid == target_pid)
             return 1;
         int parent = proc_number(pid, "PPid:", 10);
         if (parent == pid)
             return 0;
+        /* Detached children are reparented to the supervisor. */
+        if (parent == supervisor)
+            return 1;
         pid = parent;
     }
     return 0;
@@ -190,8 +194,19 @@ static int parse_memory_limit(void) {
 static const struct sock_filter filter[] = {
     /* Only handle calls made for this processor type. */
     BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)),
+#ifdef __x86_64__
+    /* 32-bit Wine sets its TLS before it can run. Allow only that i386
+     * setup call; every other i386 syscall stays unavailable. */
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, NATIVE_ARCH, 5, 0),
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_I386, 0, 3),
+    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 243, 0, 1),
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | ENOSYS),
+#else
     BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, NATIVE_ARCH, 1, 0),
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | ENOSYS),
+#endif
     BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
 #ifdef __x86_64__
     BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, 0x40000000, 0, 1),
@@ -825,6 +840,11 @@ int main(int argc, char **argv) {
     struct sigaction action = {.sa_handler = child_done};
     sigemptyset(&action.sa_mask);
     sigaction(SIGCHLD, &action, NULL);
+    /* Adopt detached Wine servers even when Docker's init is PID 1. */
+    if (prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0)) {
+        perror("guard: subreaper");
+        return 1;
+    }
     pid_t supervisor = getpid(), child = fork();
     if (child < 0)
         return 1;
@@ -878,8 +898,15 @@ int main(int argc, char **argv) {
     clock_gettime(CLOCK_MONOTONIC, &boot_time);
     int status = 0;
     for (;;) {
-        if (finished && waitpid(child, &status, WNOHANG) == child)
-            break;
+        if (finished) {
+            finished = 0;
+            pid_t reaped;
+            while ((reaped = waitpid(-1, &status, WNOHANG)) > 0)
+                if (reaped == child)
+                    break;
+            if (reaped == child)
+                break;
+        }
         struct pollfd pending = {.fd = listener, .events = POLLIN};
         int ready = poll(&pending, 1, 200);
         if (ready < 0 && errno != EINTR) {
